@@ -26,7 +26,7 @@ jobs:
           MGR_NAME="manage-ohb-docker-$TAG.sh"
           
           # create a manager with version in the name and file
-          sed 's/^\(OHB_MANAGER_VERSION=\).*$/\1$TAG/' ./docker/manage-ohb-docker.sh \
+          sed "s/^\(OHB_MANAGER_VERSION=\).*$/\1$TAG/" ./docker/manage-ohb-docker.sh \
           > "./docker/$MGR_NAME"
 
           # add version artifact
@@ -43,7 +43,7 @@ jobs:
         run: |
           # Grabs file from repo tree and uploads with a label
           gh release create ${{ github.event.inputs.tag_name }} \
-            './docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs' \
+            "./docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs" \
             "dist/OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB Source Tarball" \
             "dist/OHB-${{ github.event.inputs.tag_name }}.zip#OHB Source Zip" \
             --title "OHB Release: ${{ github.event.inputs.tag_name }}" \
