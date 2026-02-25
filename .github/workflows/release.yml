@@ -22,11 +22,16 @@ jobs:
         run: |
           # Define asset names with the tag
           TAG="${{ github.event.inputs.tag_name }}"
+          REF="${{ github.ref_name }}"
           MGR_NAME="manage-ohb-docker-$TAG.sh"
           
           # create a manager with version in the name and file
           sed 's/^\(OHB_MANAGER_VERSION=\).*$/\1$TAG/' ./docker/manage-ohb-docker.sh \
           > "./docker/$MGR_NAME"
+
+          # add version artifact
+          echo "TAG=$TAG" > VERSION.txt
+          echo "REF=$REF" >> VERSION.txt
 
           # create the tars and zips
           mkdir dist
