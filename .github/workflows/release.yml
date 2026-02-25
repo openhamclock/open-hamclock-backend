@@ -44,3 +44,4 @@ jobs:
             "my-project-${{ github.ref_name }}.zip#OHB source zip" \
             --title "OHB Release: ${{ github.event.inputs.tag_name }}" \
             --generate-notes
+
