@@ -20,7 +20,7 @@ jobs:
 
       - name: Add tag to manager
         run: |
-	 	  # Define asset names with the tag
+          # Define asset names with the tag
           MGR_NAME="manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh"
           TAR_NAME="OHB-${{ github.ref_name }}.tar.gz"
           ZIP_NAME="OHB-${{ github.ref_name }}.zip"
@@ -29,7 +29,7 @@ jobs:
           sed 's/^\(OHB_MANAGER_VERSION=\).*$/\1${{ github.event.inputs.tag_name }}/' ./docker/manage-ohb-docker.sh \
           > "./docker/$MGR_NAME"
 
-		  # create the tars and zips
+          # create the tars and zips
           tar -czf "$TAR_NAME" .
           zip -r "$ZIP_NAME" .
 
@@ -40,8 +40,8 @@ jobs:
           # Grabs file from repo tree and uploads with a label
           gh release create ${{ github.event.inputs.tag_name }} \
             './docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs' \
-   			"my-project-${{ github.ref_name }}.tar.gz#OHB source tarball" \
-            "my-project-${{ github.ref_name }}.zip#OHB source zip" \
+            "OHB-${{ github.ref_name }}.tar.gz#OHB source tarball" \
+            "OHB-${{ github.ref_name }}.zip#OHB source zip" \
             --title "OHB Release: ${{ github.event.inputs.tag_name }}" \
             --generate-notes
 
