@@ -20,9 +20,6 @@ jobs:
 
       - name: Prepare assets
         run: |
-          # Install zip (standard on ubuntu-latest, but good to ensure)
-          sudo apt-get update && sudo apt-get install -y zip
-
           # Define asset names with the tag
           TAG="${{ github.event.inputs.tag_name }}"
           MGR_NAME="manage-ohb-docker-$TAG.sh"
@@ -32,8 +29,9 @@ jobs:
           > "./docker/$MGR_NAME"
 
           # create the tars and zips
-          tar -czf "OHB-$TAG.tar.gz" .
-          zip -r "OHB-$TAG.zip" .
+          mkdir dist
+          tar -czf "dist/OHB-$TAG.tar.gz" --exclude=dist .
+          zip -r "dist/OHB-$TAG.zip" . -x "dist/*"
 
       - name: Create Release and Upload Asset
         env:
@@ -42,8 +40,8 @@ jobs:
           # Grabs file from repo tree and uploads with a label
           gh release create ${{ github.event.inputs.tag_name }} \
             './docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs' \
-            "OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB source tarball" \
-            "OHB-${{ github.event.inputs.tag_name }}.zip#OHB source zip" \
+            "dist/OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB source tarball" \
+            "dist/OHB-${{ github.event.inputs.tag_name }}.zip#OHB source zip" \
             --title "OHB Release: ${{ github.event.inputs.tag_name }}" \
             --generate-notes
 
