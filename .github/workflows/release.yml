@@ -31,7 +31,6 @@ jobs:
 
           # add version artifact
           echo "TAG=$TAG" > VERSION.txt
-          echo "REF=$REF" >> VERSION.txt
 
           # create the tars and zips
           mkdir dist
@@ -45,8 +44,8 @@ jobs:
           # Grabs file from repo tree and uploads with a label
           gh release create ${{ github.event.inputs.tag_name }} \
             './docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs' \
-            "dist/OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB source tarball" \
-            "dist/OHB-${{ github.event.inputs.tag_name }}.zip#OHB source zip" \
+            "dist/OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB Source Tarball" \
+            "dist/OHB-${{ github.event.inputs.tag_name }}.zip#OHB Source Zip" \
             --title "OHB Release: ${{ github.event.inputs.tag_name }}" \
             --generate-notes
 
