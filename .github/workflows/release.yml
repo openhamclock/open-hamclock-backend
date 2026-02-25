@@ -18,20 +18,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Add tag to manager
+      - name: Prepare assets
         run: |
+          # Install zip (standard on ubuntu-latest, but good to ensure)
+          sudo apt-get update && sudo apt-get install -y zip
+
           # Define asset names with the tag
-          MGR_NAME="manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh"
-          TAR_NAME="OHB-${{ github.ref_name }}.tar.gz"
-          ZIP_NAME="OHB-${{ github.ref_name }}.zip"
+          TAG="${{ github.event.inputs.tag_name }}"
+          MGR_NAME="manage-ohb-docker-$TAG.sh"
           
           # create a manager with version in the name and file
-          sed 's/^\(OHB_MANAGER_VERSION=\).*$/\1${{ github.event.inputs.tag_name }}/' ./docker/manage-ohb-docker.sh \
+          sed 's/^\(OHB_MANAGER_VERSION=\).*$/\1$TAG/' ./docker/manage-ohb-docker.sh \
           > "./docker/$MGR_NAME"
 
           # create the tars and zips
-          tar -czf "$TAR_NAME" .
-          zip -r "$ZIP_NAME" .
+          tar -czf "OHB-$TAG.tar.gz" .
+          zip -r "OHB-$TAG.zip" .
 
       - name: Create Release and Upload Asset
         env:
@@ -40,8 +42,8 @@ jobs:
           # Grabs file from repo tree and uploads with a label
           gh release create ${{ github.event.inputs.tag_name }} \
             './docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs' \
-            "OHB-${{ github.ref_name }}.tar.gz#OHB source tarball" \
-            "OHB-${{ github.ref_name }}.zip#OHB source zip" \
+            "OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB source tarball" \
+            "OHB-${{ github.event.inputs.tag_name }}.zip#OHB source zip" \
             --title "OHB Release: ${{ github.event.inputs.tag_name }}" \
             --generate-notes
 
