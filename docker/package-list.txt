@@ -39,6 +39,7 @@ python3-grib
 python3-matplotlib
 python3-numpy
 python3-pandas
+python3-paho-mqtt
 python3-pyproj
 python3-requests
 python3-sgp4

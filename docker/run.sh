@@ -61,6 +61,9 @@ echo $(date -u +%s) > /opt/started-running.txt
 echo "Starting cron ..."
 /usr/sbin/cron
 
+echo "Starting blitzortung ..."
+/opt/hamclock-backend/scripts/blitzortung_daemon.py &
+
 echo "OHB is running and ready to use at: $(date -u +%H:%M:%S)"
 
 # this extra work causes the container to stop quickly. We need to 
