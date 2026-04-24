@@ -62,7 +62,13 @@ echo "Starting cron ..."
 /usr/sbin/cron
 
 echo "Starting blitzortung ..."
-/opt/hamclock-backend/scripts/blitzortung_daemon.py &
+(
+    while true; do
+        /opt/hamclock-backend/scripts/blitzortung_daemon.py
+        echo "$(date -u +%H:%M:%S): Blizortung stopped. Restarting in 5 seconds ..."
+        sleep 5
+    done
+)&
 
 echo "OHB is running and ready to use at: $(date -u +%H:%M:%S)"
 
