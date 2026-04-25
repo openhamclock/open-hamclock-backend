@@ -15,7 +15,7 @@
  
         if [ -f "$TARGET" ]; then
             # Anonymize the file and give it a new name
-            anonip --input "$TARGET" | gzip > "$TARGET.anon.gz"
+            anonip --input "$TARGET" | sed 's/call=[^&]\+/call=W1AW/' | gzip > "$TARGET.anon.gz"
         fi
     endscript
 }
