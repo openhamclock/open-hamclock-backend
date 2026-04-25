@@ -28,6 +28,7 @@ for my $pair (split /&/, ($ENV{QUERY_STRING} // '')) {
 my $lat    = (defined $q{lat}    && $q{lat}    =~ /^[+-]?\d{1,3}(\.\d+)?$/) ? $q{lat}+0    : undef;
 my $lon    = (defined $q{lon}    && $q{lon}    =~ /^[+-]?\d{1,3}(\.\d+)?$/) ? $q{lon}+0    : undef;
 my $radius = (defined $q{radius} && $q{radius} =~ /^\d{1,5}$/)              ? $q{radius}+0 : 500;
+my $maxage = (defined $q{maxage} && $q{maxage} =~ /^\d{1,5}$/)              ? $q{maxage}+0 : $MAX_AGE;
 
 print "Content-Type: text/plain\r\n\r\n";
 
@@ -53,7 +54,7 @@ my $lat1   = $lat * 3.14159265358979 / 180;
 for my $s (@{$data->{strikes}}) {
     # Age in whole seconds at time of this request
     my $age_s = int(($now_ms - $s->{strikeTime}) / 1000);
-    next if $age_s < 0 || $age_s > $MAX_AGE;
+    next if $age_s < 0 || $age_s > $maxage;
 
     # Haversine distance in km
     my $dlat = ($s->{lat} - $lat) * 3.14159265358979 / 180;
