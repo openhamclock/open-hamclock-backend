@@ -154,7 +154,7 @@ foreach my $item (
         # Update wifi.cpp inside zip
         my $target_file = "ESPHamClock/wifi.cpp";
         system("unzip -q -o $zip_path $target_file -d $tmp_dir");
-		if (-f "$tmp_dir/$target_file") {
+        if (-f "$tmp_dir/$target_file") {
             # depending on the version, the backend host could be in DEFAULT_HOST or backend_host. Also software_host
             # might be used
             system("sed -i -E 's/^(.*(DEFAULT_HOST|backend_host|software_host).* \")[^\"]*(\";?)/\\1$host_hostname\\3/' $tmp_dir/$target_file");
@@ -218,4 +218,58 @@ foreach my $item (
     close($fh);
     chmod 0644, $txt_file;
     print "Success: Processed $item->{type} -> $status_msg\n";
+}
+
+# --- Handle main branch zip ---
+my $main_sha_url = "https://api.github.com/repos/$owner/$repo/commits/main";
+my $main_zip_url = "https://github.com/$owner/$repo/archive/refs/heads/main.zip";
+my $main_zip_name = "ESPHamClock-main.zip";
+my $main_zip_path = "$cache_dir/$main_zip_name";
+my $main_sha_path = "$main_zip_path.sha";
+
+my $sha_resp = $ua->get($main_sha_url, 'Accept' => 'application/vnd.github.sha');
+if ($sha_resp->is_success) {
+    my $current_sha = $sha_resp->decoded_content;
+    chomp($current_sha);
+
+    my $old_sha = "";
+    if (-f $main_sha_path) {
+        open(my $shafh, '<', $main_sha_path);
+        $old_sha = <$shafh>;
+        close($shafh);
+        chomp($old_sha) if $old_sha;
+    }
+
+    if ($current_sha ne $old_sha || !-f $main_zip_path) {
+        print "Main branch update found (SHA: $current_sha). Downloading...\n";
+        my $zip_resp = $ua->get($main_zip_url, ':content_file' => $main_zip_path);
+        if ($zip_resp->is_success) {
+            # Extract only the ESPHamClock folder from the main repo zip
+            my $repo_root = "hamclock-main";
+            my $target_folder = "ESPHamClock";
+
+            # Extract only the source folder from the main repo zip
+            system("unzip -q -o $main_zip_path '$repo_root/$target_folder/*' -d $tmp_dir");
+
+            # Patch wifi.cpp in the extracted folder
+            my $target_file = "$tmp_dir/$repo_root/$target_folder/wifi.cpp";
+            if (-f $target_file) {
+                system("sed -i -E 's/^(.*(DEFAULT_HOST|backend_host|software_host).* \")[^\"]*(\";?)/\\1$host_hostname\\3/' $target_file");
+            }
+
+            # Re-zip just the ESPHamClock folder (stripped of hamclock-main prefix)
+            system("rm -f $main_zip_path");
+            system("cd $tmp_dir/$repo_root && zip -q -r $main_zip_path $target_folder");
+
+            # Cleanup and save SHA
+            system("rm -rf $tmp_dir/$repo_root");
+            open(my $shafh, '>', $main_sha_path);
+            print $shafh $current_sha;
+            close($shafh);
+            chmod 0644, $main_zip_path;
+            print "Success: Processed main branch into ESPHamClock-only zip\n";
+        }
+    } else {
+        print "Main branch is up to date.\n";
+    }
 }
