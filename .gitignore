@@ -3,3 +3,4 @@
 *.env
 ohb-maps.tar.zst
 notes/
+.vscode/
