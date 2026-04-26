@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+#
+# Copyright (C) 2026 Open HamClock Backend (OHB) Contributors
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
 set -euo pipefail
 
 OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
@@ -28,8 +44,8 @@ need install
 log() { printf '%s %s\n' "$(date '+%F %T%z')" "$*"; }
 
 filesize() {
-  # Linux stat
-  stat -c '%s' "$1" 2>/dev/null || wc -c <"$1"
+    # Linux stat
+    stat -c '%s' "$1" 2>/dev/null || wc -c <"$1"
 }
 
 start_epoch="$(date +%s)"
@@ -39,14 +55,14 @@ mkdir -p "$OUTDIR"
 
 # Find newest source JPG by filename sort (timestamp is embedded in the name)
 latest="$(curl -fsS --list-only "$FTP_DIR" \
-  | tr -d '\r' \
-  | grep -E "$PATTERN" \
-  | sort \
-  | tail -n 1 || true)"
+    | tr -d '\r' \
+    | grep -E "$PATTERN" \
+    | sort \
+    | tail -n 1 || true)"
 
 if [[ -z "$latest" ]]; then
-  echo "ERROR: Could not find any matching files in $FTP_DIR" >&2
-  exit 1
+    echo "ERROR: Could not find any matching files in $FTP_DIR" >&2
+    exit 1
 fi
 
 src_jpg="$TMPDIR/$latest"
@@ -54,12 +70,12 @@ curl -fsS -A "open-hamclock-backend/1.0" --retry 2 --retry-delay 2 "${FTP_DIR}${
 
 # Build BMPv4 RGB565 top-down from a raw RGB888 file
 make_bmp_v4_rgb565_topdown() {
-  local inraw="$1"
-  local outbmp="$2"
-  local W="$3"
-  local H="$4"
+    local inraw="$1"
+    local outbmp="$2"
+    local W="$3"
+    local H="$4"
 
-  python3 - <<'PY' "$inraw" "$outbmp" "$W" "$H"
+    python3 - <<'PY' "$inraw" "$outbmp" "$W" "$H"
 import struct, sys
 
 inraw, outbmp, W, H = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
@@ -146,9 +162,9 @@ PY
 }
 
 zlib_compress() {
-  local in="$1"
-  local out="$2"
-  python3 - <<'PY' "$in" "$out"
+    local in="$1"
+    local out="$2"
+    python3 - <<'PY' "$in" "$out"
 import zlib, sys
 data = open(sys.argv[1], "rb").read()
 open(sys.argv[2], "wb").write(zlib.compress(data, 9))
@@ -156,60 +172,60 @@ PY
 }
 
 for wh in "${SIZES[@]}"; do
-  W="${wh%x*}"
-  H="${wh#*x}"
+    W="${wh%x*}"
+    H="${wh#*x}"
 
-  log "INFO: generating Clouds ${W}x${H} from ${latest}"
+    log "INFO: generating Clouds ${W}x${H} from ${latest}"
 
-  day_png="$TMPDIR/day_${W}x${H}.png"
-  night_png="$TMPDIR/night_${W}x${H}.png"
+    day_png="$TMPDIR/day_${W}x${H}.png"
+    night_png="$TMPDIR/night_${W}x${H}.png"
 
-  # Day: unmodified (just normalize size/colorspace)
-  convert "$src_jpg" \
-    -alpha off -colorspace sRGB \
-    -resize "${W}x${H}!" \
-    "$day_png"
+    # Day: unmodified (just normalize size/colorspace)
+    convert "$src_jpg" \
+        -alpha off -colorspace sRGB \
+        -resize "${W}x${H}!" \
+        "$day_png"
 
-  # Night: scale down then lift blacks
-  convert "$src_jpg" \
-    -alpha off -colorspace sRGB \
-    -resize "${W}x${H}!" \
-    -evaluate multiply "$NIGHT_MULT" \
-    -evaluate add "$NIGHT_ADD" \
-    "$night_png"
+    # Night: scale down then lift blacks
+    convert "$src_jpg" \
+        -alpha off -colorspace sRGB \
+        -resize "${W}x${H}!" \
+        -evaluate multiply "$NIGHT_MULT" \
+        -evaluate add "$NIGHT_ADD" \
+        "$night_png"
 
-  day_raw="$TMPDIR/day_${W}x${H}.rgb"
-  night_raw="$TMPDIR/night_${W}x${H}.rgb"
-  convert "$day_png"   -alpha off -colorspace sRGB -depth 8 "rgb:$day_raw"
-  convert "$night_png" -alpha off -colorspace sRGB -depth 8 "rgb:$night_raw"
+    day_raw="$TMPDIR/day_${W}x${H}.rgb"
+    night_raw="$TMPDIR/night_${W}x${H}.rgb"
+    convert "$day_png"   -alpha off -colorspace sRGB -depth 8 "rgb:$day_raw"
+    convert "$night_png" -alpha off -colorspace sRGB -depth 8 "rgb:$night_raw"
 
-  day_bmp_tmp="$TMPDIR/map-D-${W}x${H}-Clouds.bmp"
-  night_bmp_tmp="$TMPDIR/map-N-${W}x${H}-Clouds.bmp"
+    day_bmp_tmp="$TMPDIR/map-D-${W}x${H}-Clouds.bmp"
+    night_bmp_tmp="$TMPDIR/map-N-${W}x${H}-Clouds.bmp"
 
-  make_bmp_v4_rgb565_topdown "$day_raw"   "$day_bmp_tmp"   "$W" "$H"
-  make_bmp_v4_rgb565_topdown "$night_raw" "$night_bmp_tmp" "$W" "$H"
+    make_bmp_v4_rgb565_topdown "$day_raw"   "$day_bmp_tmp"   "$W" "$H"
+    make_bmp_v4_rgb565_topdown "$night_raw" "$night_bmp_tmp" "$W" "$H"
 
-  install -m 0644 "$day_bmp_tmp"   "$OUTDIR/map-D-${W}x${H}-Clouds.bmp"
-  install -m 0644 "$night_bmp_tmp" "$OUTDIR/map-N-${W}x${H}-Clouds.bmp"
+    install -m 0644 "$day_bmp_tmp"   "$OUTDIR/map-D-${W}x${H}-Clouds.bmp"
+    install -m 0644 "$night_bmp_tmp" "$OUTDIR/map-N-${W}x${H}-Clouds.bmp"
 
-  zlib_compress "$OUTDIR/map-D-${W}x${H}-Clouds.bmp" "$OUTDIR/map-D-${W}x${H}-Clouds.bmp.z"
-  zlib_compress "$OUTDIR/map-N-${W}x${H}-Clouds.bmp" "$OUTDIR/map-N-${W}x${H}-Clouds.bmp.z"
+    zlib_compress "$OUTDIR/map-D-${W}x${H}-Clouds.bmp" "$OUTDIR/map-D-${W}x${H}-Clouds.bmp.z"
+    zlib_compress "$OUTDIR/map-N-${W}x${H}-Clouds.bmp" "$OUTDIR/map-N-${W}x${H}-Clouds.bmp.z"
 
     # Verify outputs exist and are non-empty
-  day_out_bmp="$OUTDIR/map-D-${W}x${H}-Clouds.bmp"
-  night_out_bmp="$OUTDIR/map-N-${W}x${H}-Clouds.bmp"
-  day_out_z="$day_out_bmp.z"
-  night_out_z="$night_out_bmp.z"
+    day_out_bmp="$OUTDIR/map-D-${W}x${H}-Clouds.bmp"
+    night_out_bmp="$OUTDIR/map-N-${W}x${H}-Clouds.bmp"
+    day_out_z="$day_out_bmp.z"
+    night_out_z="$night_out_bmp.z"
 
-  for f in "$day_out_bmp" "$night_out_bmp" "$day_out_z" "$night_out_z"; do
-    if [[ ! -s "$f" ]]; then
-      log "ERROR: expected output missing/empty: $f"
-      exit 1
-    fi
-  done
+    for f in "$day_out_bmp" "$night_out_bmp" "$day_out_z" "$night_out_z"; do
+        if [[ ! -s "$f" ]]; then
+            log "ERROR: expected output missing/empty: $f"
+            exit 1
+        fi
+    done
 
-  # Verify .z actually decompresses into a BMP and has expected size
-  python3 - <<'PY' "$day_out_z" "$night_out_z" "$W" "$H"
+    # Verify .z actually decompresses into a BMP and has expected size
+    python3 - <<'PY' "$day_out_z" "$night_out_z" "$W" "$H"
 import sys, zlib, struct
 W, H = int(sys.argv[3]), int(sys.argv[4])
 exp = 122 + W*H*2  # BMPv4 header (122) + RGB565 pixels
@@ -221,10 +237,10 @@ for p in sys.argv[1:3]:
         raise SystemExit(f"BAD: {p} decompressed size {len(data)} != expected {exp}")
 PY
 
-  # Emit strong “created” log lines with byte sizes (easy to grep in cron logs)
-  log "CREATED: $day_out_bmp bytes=$(filesize "$day_out_bmp") zbytes=$(filesize "$day_out_z")"
-  log "CREATED: $night_out_bmp bytes=$(filesize "$night_out_bmp") zbytes=$(filesize "$night_out_z")"
-  created_ok=$((created_ok + 2))
+    # Emit strong “created” log lines with byte sizes (easy to grep in cron logs)
+    log "CREATED: $day_out_bmp bytes=$(filesize "$day_out_bmp") zbytes=$(filesize "$day_out_z")"
+    log "CREATED: $night_out_bmp bytes=$(filesize "$night_out_bmp") zbytes=$(filesize "$night_out_z")"
+    created_ok=$((created_ok + 2))
 
 done
 
