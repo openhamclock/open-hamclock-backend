@@ -22,11 +22,10 @@ VOACAP_VERSION=v.0.7.6
 HTTP_PORT=80
 
 # Don't set anything past here
-TAG=$(git describe --exact-match --tags 2>/dev/null)
-if [ $? -ne 0 ]; then
+if ! TAG=$(git describe --exact-match --tags 2>/dev/null); then
     echo "NOTE: Not currently on a tag. Using 'latest'."
     TAG=latest
-    GIT_VERSION=$(git rev-parse HEAD)
+    GIT_VERSION=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 else
     GIT_VERSION=$TAG
 fi

@@ -112,7 +112,7 @@ main() {
             ;;
     esac
 
-    if [ "$SAVE_STICKY_VARS" == true -a $RETVAL -eq 0 ]; then
+    if [[ "$SAVE_STICKY_VARS" == "true" && $RETVAL -eq 0 ]]; then
         save_sticky_vars
     fi
 }
@@ -128,7 +128,7 @@ get_compose_opts() {
                 ;;
             l)
                 REQUESTED_EXTERNAL_HTTP_LOG="$OPTARG"
-                if [ "$REQUESTED_EXTERNAL_HTTP_LOG" != true -a "$REQUESTED_EXTERNAL_HTTP_LOG" != false ]; then
+                if [[ "$REQUESTED_EXTERNAL_HTTP_LOG" != "true" && "$REQUESTED_EXTERNAL_HTTP_LOG" != "false" ]]; then
                     echo "ERROR: -$opt option must be <true|false>"
                     exit 1
                 fi
@@ -330,7 +330,7 @@ is_ohb_installed() {
     else
         echo "  git checkout not found."
     fi
-    TAG_FROM_GIT=$(curl -s --connect-timeout 2 "$GITHUB_LATEST_RELEASE_URL" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    TAG_FROM_GIT=$(curl -s --connect-timeout 2 "$GITHUB_LATEST_RELEASE_URL" | jq -r '.tag_name // ""')
     echo "  Latest release available from GitHub: '$TAG_FROM_GIT'"
 
     echo

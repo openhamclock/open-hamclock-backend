@@ -60,7 +60,7 @@ try:
 except ImportError:
     _HAS_LAND_MASK = False
     print("WARN: global-land-mask not installed; ocean skipping disabled. "
-          "Run: pip3 install global-land-mask", file=__import__('sys').stderr)
+          "Run: pip3 install global-land-mask", file=sys.stderr)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -245,7 +245,7 @@ def build_fetch_queue(cities):
 
     if skipped:
         print(f"INFO: skipped {skipped} pure-ocean grid points (no city nearby).",
-              file=__import__('sys').stderr)
+              file=sys.stderr)
 
     return queue, city_slots
 
