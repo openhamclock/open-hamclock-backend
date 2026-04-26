@@ -84,4 +84,5 @@ ohb_load_sizes() {
     fi
 
     OHB_SIZES_NORM="$(IFS=','; echo "${SIZES[*]}")"
+    return 0
 }
