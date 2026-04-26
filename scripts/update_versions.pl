@@ -160,13 +160,6 @@ foreach my $item (
             system("sed -i -E 's/^(.*(DEFAULT_HOST|backend_host|software_host).* \")[^\"]*(\";?)/\\1$host_hostname\\3/' $tmp_dir/$target_file");
             system("cd $tmp_dir && zip -q -u $zip_path $target_file");
             system("rm -rf $tmp_dir/ESPHamClock");
-
-            # Update local SHA file to match modified zip
-            my $new_sha = Digest::SHA->new(256)->addfile($zip_path)->hexdigest;
-            if (open(my $sfh, '>', $zip_sha_path)) {
-                print $sfh "$new_sha  $zip_filename\n";
-                close($sfh);
-            }
         }
     } else {
         print "Error: Failed to download $zip_filename. Status: " . $zip_resp->status_line . "\n";
