@@ -16,7 +16,10 @@ my $user_agent = $q->user_agent() || "";
 my $target_file = "";
 my $content_type = 'application/zip';
 
-if ($query_file =~ /^ESPHamClock-V[\d\.]+(b\d+)?\.zip$/i) {
+if ($query_file eq "ESPHamClock-main.zip") {
+    # Case 0: Explicit request for the main branch build
+    $target_file = "ESPHamClock-main.zip";
+} elsif ($query_file =~ /^ESPHamClock-V[\d\.]+(b\d+)?\.zip$/i) {
     # Case A: Specific version requested directly
     $target_file = $query_file;
 } elsif ($query_file eq "ESPHamClock.zip") {
