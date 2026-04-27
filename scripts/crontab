@@ -89,4 +89,5 @@ LANG=C
 3,18,33,48 * * * * /opt/hamclock-backend/scripts/update_aurora_maps.sh  >> /opt/hamclock-backend/logs/update_aurora_maps.log 2>&1
 0 2,8,14,20 * * *   /opt/hamclock-backend/scripts/update_wx_mb_maps.sh   >> /opt/hamclock-backend/logs/update_wx_mb_maps.log  2>&1
 
+*/30 * * * * /opt/hamclock-backend/scripts/probe_dynamic_endpoints.sh >> /opt/hamclock-backend/logs/probe_dynamic_endpoints.log 2>&1
 */5 * * * * /opt/hamclock-backend/scripts/generate_status_json.sh >> /opt/hamclock-backend/logs/generate_status_json.log 2>&1
