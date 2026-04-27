@@ -71,8 +71,8 @@ def on_message(client, userdata, msg):
     except Exception:
         pass    # malformed messages not worth logging
 
-def on_disconnect(client, userdata, rc, properties=None):
-    log.warning(f"Disconnected rc={rc}, will reconnect")
+def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+    log.warning(f"Disconnected reason={reason_code}, will reconnect")
 
 def cache_writer():
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
