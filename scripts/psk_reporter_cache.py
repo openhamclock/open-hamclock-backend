@@ -16,7 +16,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-psk_cache_updater.py — PSKReporter rolling 24-hour spot cache updater.
+psk_reporter_cache.py — PSKReporter rolling 24-hour spot cache updater.
 
 Uses PSKReporter's lastseqno mechanism to efficiently poll only NEW spots
 each run, building a rolling 24-hour window in a local SQLite database.
