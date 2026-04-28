@@ -154,6 +154,7 @@ DYN_HEALTHY=0
 DYN_EMPTY=0
 DYN_FAILED=0
 DYN_TIMEOUT=0
+DYN_COUNT_24H=0
 DYN_GENERATED=""
 DYN_AGE_SEC=0
 DYN_AVAILABLE=0
@@ -168,6 +169,7 @@ if [ -r "$DYNAMIC_SIDECAR" ] && command -v jq >/dev/null 2>&1; then
     DYN_EMPTY=$(jq     -r '.summary.empty   // 0'    "$DYNAMIC_SIDECAR")
     DYN_FAILED=$(jq    -r '.summary.failed  // 0'    "$DYNAMIC_SIDECAR")
     DYN_TIMEOUT=$(jq   -r '.summary.timeout // 0'    "$DYNAMIC_SIDECAR")
+    DYN_COUNT_24H=$(jq -r '.summary.count_24h // 0'  "$DYNAMIC_SIDECAR")
     DYN_GENERATED=$(jq -r '.generated_utc   // ""'   "$DYNAMIC_SIDECAR")
     # Backward-compat: if sidecar predates "healthy" key, fall back to active
     [ "$DYN_HEALTHY" -eq 0 ] && [ "$DYN_ACTIVE" -gt 0 ] && DYN_HEALTHY="$DYN_ACTIVE"
@@ -199,7 +201,7 @@ emit_file_row() {
     [ "$filename" = "ignore" ] && return
 
     local mod_epoch
-    mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null)
+    mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
     local mod_human
     mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
              || date -u -r "$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
@@ -320,7 +322,7 @@ build_json_entries() {
         [ "$filename" = "ignore" ] && continue
 
         local mod_epoch
-        mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null)
+        mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
         local mod_human
         mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
                  || date -u -r "$mod_epoch"   "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
@@ -365,6 +367,7 @@ build_json() {
         printf '    "dynamic_active": %d,\n'     "$DYN_ACTIVE"
         printf '    "dynamic_idle": %d,\n'       "$DYN_IDLE"
         printf '    "dynamic_healthy": %d,\n'    "$DYN_HEALTHY"
+        printf '    "dynamic_count_24h": %d,\n'  "$DYN_COUNT_24H"
         printf '    "total_files": %d\n'         "$(( DATA_COUNT + SDO_COUNT + MAPS_COUNT ))"
         printf '  },\n'
 
@@ -493,7 +496,17 @@ cat << HTML_HEAD
       gap: 2px;
     }
     .summary-item:nth-child(2n) { border-right: none; }
+
+    /* If the total number of items is odd, make the last one span both columns */
+    .summary-item:last-child:nth-child(odd) {
+      grid-column: span 2;
+      border-right: none;
+    }
+
     .summary-item:nth-last-child(-n+2) { border-bottom: none; }
+    /* If 2nd-to-last item is even, it sits above a spanning last item; give it a border-bottom */
+    .summary-item:nth-last-child(2):nth-child(even) { border-bottom: 1px solid var(--border); }
+
     .summary-label { font-size: 0.62rem; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
     .summary-value { font-family: 'IBM Plex Mono', monospace; font-size: 1.25rem; font-weight: 500; color: var(--accent); }
 
@@ -626,6 +639,7 @@ cat << HTML_HEAD
       .summary  { grid-template-columns: 1fr; }
       .summary-item:nth-child(2n)        { border-right: none; }
       .summary-item:nth-last-child(-n+2) { border-bottom: 1px solid var(--border); }
+      .summary-item:last-child:nth-child(odd) { grid-column: auto; }
       .summary-item:last-child           { border-bottom: none; }
     }
   </style>
@@ -660,6 +674,10 @@ cat << HTML_HEAD
   <div class="summary-item">
     <span class="summary-label">Dynamic Endpoints</span>
     <span class="summary-value">${DYN_HEALTHY} / ${DYN_TOTAL}</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-label">Unique HamClocks: 24h</span>
+    <span class="summary-value">${DYN_COUNT_24H}</span>
   </div>
 </div>
 
