@@ -201,7 +201,7 @@ emit_file_row() {
     [ "$filename" = "ignore" ] && return
 
     local mod_epoch
-    mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null)
+    mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
     local mod_human
     mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
              || date -u -r "$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
@@ -322,7 +322,7 @@ build_json_entries() {
         [ "$filename" = "ignore" ] && continue
 
         local mod_epoch
-        mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null)
+        mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
         local mod_human
         mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
                  || date -u -r "$mod_epoch"   "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)

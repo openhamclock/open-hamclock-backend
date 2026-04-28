@@ -213,7 +213,7 @@ first=1
     printf '    "failed":  %d,\n' "$failed"
     printf '    "timeout": %d,\n' "$timeout"
     printf '    "healthy": %d,\n' "$healthy"
-    printf '    "count_24h": %s\n' "$count_24h"
+    printf '    "count_24h": %d\n' "$count_24h"
     printf '  },\n'
 
     # Top-level rollup: OK if every endpoint is ACTIVE or IDLE.
