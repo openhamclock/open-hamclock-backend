@@ -62,6 +62,7 @@ set -u
 # ── Defaults ────────────────────────────────────────────────────────────────
 HOST="${HAMCLOCK_PROBE_HOST:-http://localhost}"
 SIDECAR="${HAMCLOCK_PROBE_OUTPUT:-/opt/hamclock-backend/htdocs/ham/HamClock/dynamic_status.json}"
+NODE_EXPORTER_URL="${HAMCLOCK_NODE_EXPORTER_URL:-http://node-exporter:9100/metrics}"
 TIMEOUT="${HAMCLOCK_PROBE_TIMEOUT:-10}"
 QUIET=0
 MIN_BYTES_OK=1   # 200 + >=1 byte counts as ACTIVE
@@ -199,6 +200,10 @@ first=1
     # Healthy = ACTIVE + IDLE (CGI is responding; IDLE is a legitimate empty answer).
     healthy=$(( active + idle ))
 
+    # Fetch custom metrics from node-exporter
+    count_24h=$(curl -sS --max-time "$TIMEOUT" "$NODE_EXPORTER_URL" 2>/dev/null | grep "^count_24_hours" | awk '{print $2}')
+    [ -z "$count_24h" ] && count_24h=0
+
     printf '\n  ],\n'
     printf '  "summary": {\n'
     printf '    "total":   %d,\n' "$total"
@@ -207,7 +212,8 @@ first=1
     printf '    "empty":   %d,\n' "$empty"
     printf '    "failed":  %d,\n' "$failed"
     printf '    "timeout": %d,\n' "$timeout"
-    printf '    "healthy": %d\n'  "$healthy"
+    printf '    "healthy": %d,\n' "$healthy"
+    printf '    "count_24h": %s\n' "$count_24h"
     printf '  },\n'
 
     # Top-level rollup: OK if every endpoint is ACTIVE or IDLE.
