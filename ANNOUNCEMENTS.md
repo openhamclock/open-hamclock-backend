@@ -1,7 +1,8 @@
 ## Announcements
 
 ### OHB has a new home!
-The original home for OHB (Open Hamclock Backend) has migrated to this repo. You'll find all the commit history in the source. I was one of the contributors and took it over when the former developer chose to move on.
+The original home for OHB (Open Hamclock Backend) has migrated to this repo. You'll find all the commit history in the source. 
+I was one of the contributors and took it over when the former developer chose to move on.
 
 If you are running a version from before the migration, You'll need to jumpstart yourself.
 
