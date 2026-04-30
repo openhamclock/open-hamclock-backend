@@ -6,7 +6,7 @@ For latest information, visit the [announcements page](ANNOUNCEMENTS.md).
 
 ## Release Notes
 
-For a brief summary of each release visit the [OHB Works Project page](https://ohb.works/open-hamclock-backend-status/).
+For a brief summary of each release visit the [OHB Works Project page]([https://ohb.works/ohb-public-server-status/]).
 
 ## What is OHB?
 
