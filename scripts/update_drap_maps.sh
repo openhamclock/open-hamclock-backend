@@ -85,13 +85,13 @@ def nearest_haf(lat, lon):
 
 # Write dense XYZ in -180..180 range — only nonzero values so background stays black.
 with open("drap.xyz", "w") as out:
-    lat = 89.0
-    while lat >= -89.0:
+    lat = 90.0
+    while lat >= -90.0:
         lon = -179.5
         while lon <= 179.5:
             val = nearest_haf(lat, lon)
             if val > 0:
-                out.write(f"{lon:.2f} {lat:.2f} {val:.4f}\n")
+               out.write(f"{lon:.2f} {lat:.2f} {val:.4f}\n")
             lon += 0.5
         lat -= 0.5
 PYEOF
@@ -100,9 +100,9 @@ NPTS=$(wc -l < drap.xyz)
 echo "Dense grid points with absorption: $NPTS"
 
 if [ "$NPTS" -gt 0 ]; then
-    gmt nearneighbor drap.xyz -R-180/180/-90/90 -I0.5 -S3 -Gdrap_nn.nc
-    gmt grdfilter drap_nn.nc -Fg4 -D0 -Gdrap_s1.nc
-    gmt grdfilter drap_s1.nc -Fg3 -D0 -Gdrap.nc
+    gmt nearneighbor drap.xyz -R-180/180/-90/90 -I0.5 -S3 -r -Gdrap_nn.nc
+    gmt grdfilter drap_nn.nc -Fg4 -D0 -Ni -Gdrap_s1.nc
+    gmt grdfilter drap_s1.nc -Fg3 -D0 -Ni -Gdrap.nc
 else
     echo "No absorption data; generating quiet grid."
     gmt grdmath -R-180/180/-90/90 -I0.5 0 = drap.nc
@@ -210,14 +210,15 @@ render_one() {
 
   # Render at 72 DPI so 1 point = 1 pixel; -JQ0/${W}p produces exactly W pixels wide.
   gmt begin "$BASE" png E72
-    gmt coast -R-180/180/-90/90 -JQ0/${W}p -Gblack -Sblack -A10000
+    gmt set MAP_FRAME_PEN 0p PS_PAGE_COLOR black
+    gmt coast -R-180/180/-90/90 -B0 -X0 -Y-0.5p -JQ0/${W}p -Gblack -Sblack -A10000
 
     if [ "$NPTS" -gt 0 ]; then
-      gmt grdimage drap.nc -Cdrap.cpt -Q -n+b -t25
+      gmt grdimage drap.nc -Cdrap.cpt -nn -t25
     fi
 
     # White linework only (transparent interiors)
-    gmt coast -R-180/180/-90/90 -JQ0/${W}p -W0.5p,white -N1/0.4p,white -A10000
+    gmt coast -R-180/180/-90/90 -B0 -JQ0/${W}p -W0.5p,white -N1/0.4p,white -A10000
   gmt end || { echo "  !! gmt failed for $DN $SZ"; return 1; }
 
   # Haze + resize + RGB565 BMP — all in one Pillow pass, no ImageMagick
