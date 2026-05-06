@@ -31,7 +31,16 @@ use LWP::UserAgent;
 
 my $SERVICE_URL = $ENV{VOACAP_SERVICE_URL} || 'http://voacap-service:8080';
 my $ENDPOINT = "$SERVICE_URL/fetchBandConditions";
-my $TIMEOUT = 35; # seconds — matches voacap-service harakiri timeout
+
+# Timeout layers (shortest first):
+#   Python subprocess(voacapl)  = 30s   (voacap_service.py)
+#   nginx uwsgi_read_timeout    = 45s   (nginx.conf)
+#   This LWP timeout            = 45s   <-- matches nginx so we give up together
+#   lighttpd server.max-read-idle ~ 60s (default)
+#   uWSGI harakiri              = 300s  (uwsgi.ini)
+# 15s of slack over the 30s subprocess lets Python's TimeoutExpired handler
+# fire first and return a clean error rather than nginx/LWP severing the call.
+my $TIMEOUT = 45;
 
 # —————————————————————————
 # Pass query string through verbatim — no parsing, no validation needed here.
