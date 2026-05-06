@@ -6,4 +6,3 @@
 #
 # example: /ham/HamClock/delete-this-file
 
-/ham/HamClock/ESPHamClock.zip
