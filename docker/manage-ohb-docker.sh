@@ -18,7 +18,7 @@
 # at release time, this value is set to the tagged release
 OHB_MANAGER_VERSION=latest
 # tags to use
-VOACAP_SERVICE_TAG=1.13
+VOACAP_SERVICE_TAG=1.14
 PSKR_MQTT_CACHE_TAG=1.12
 
 GITHUB_LATEST_RELEASE_URL="https://api.github.com/repos/komacke/open-hamclock-backend/releases/latest"
