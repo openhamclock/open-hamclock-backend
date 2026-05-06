@@ -28,48 +28,57 @@ use LWP::UserAgent;
 # —————————————————————————
 # Configuration
 # —————————————————————————
+$| = 1; # Enable autoflush for streaming large BMPs
 
 my $SERVICE_URL = $ENV{VOACAP_SERVICE_URL} || 'http://voacap-service:8080';
-my $ENDPOINT = "$SERVICE_URL/fetchVOACAP-MUF.pl";
-my $TIMEOUT = 300; 
+my $ENDPOINT    = "$SERVICE_URL/fetchVOACAP-MUF.pl";
+
+# Replicating proxy timeouts
+my $READ_TIMEOUT  = 300; 
+my $WRITE_TIMEOUT = 360; 
+
+# —————————————————————————
+# Global Safety Timeout
+# —————————————————————————
+local $SIG{ALRM} = sub { die "Error: Script Timeout\n" };
+alarm($READ_TIMEOUT + $WRITE_TIMEOUT);
 
 # —————————————————————————
 # Pass query string through verbatim
 # —————————————————————————
-
 my $qs = $ENV{QUERY_STRING} || $ARGV[0] || '';
-
-my $ua = LWP::UserAgent->new(timeout => $TIMEOUT);
 my $url = $qs ? "$ENDPOINT?$qs" : $ENDPOINT;
-my $res = $ua->get($url);
 
-if ($res->is_success) {
-    binmode(STDOUT);
+my $ua = LWP::UserAgent->new(timeout => $READ_TIMEOUT);
+my $headers_sent = 0;
 
-    # 1. Print the status first
-    print "Status: " . $res->code . " " . $res->message . "\r\n";
+# Use :content_cb to stream the BMP chunk-by-chunk to save memory
+my $res = $ua->get($url, ':content_cb' => sub {
+    my ($chunk, $res, $proto) = @_;
 
-    # 2. Get all headers as one big string block
-    my $header_block = $res->headers->as_string("\r\n");
+    if (!$headers_sent) {
+        binmode(STDOUT);
 
-    # 3. HARDCODED FIX: 
-    # Find the Title-Cased version Perl created and force the lowercase 'l'
-    $header_block =~ s/X-2Z-Lengths/X-2Z-lengths/g;
+        # 1. Print the status first
+        print "Status: " . $res->code . " " . $res->message . "\r\n";
 
-    # 4. Filter out headers that might break the proxy/client connection
-    foreach my $line (split(/\r\n/, $header_block)) {
-        next if $line =~ /^(Transfer-Encoding|Connection|Content-Length|Client-)/i;
-        print "$line\r\n";
+        # 2. Get all headers as one big string block
+        my $header_block = $res->headers->as_string("\r\n");
+
+        # 3. HARDCODED FIX: 
+        $header_block =~ s/X-2Z-Lengths/X-2Z-lengths/g;
+
+        # 4. Filter headers
+        foreach my $line (split(/\r\n/, $header_block)) {
+            next if $line =~ /^(Transfer-Encoding|Connection|Content-Length|Client-)/i;
+            print "$line\r\n";
+        }
+
+        # 5. End headers
+        print "\r\n";
+        $headers_sent = 1;
     }
 
-    # 5. End headers and print body
-    print "\r\n";
-    print $res->content;
-} else {
-    print "Status: " . $res->code . "\r\n";
-    print "Content-Type: text/plain\r\n\r\n";
-    print "Error: " . $res->status_line;
-}
-
-exit 0;
-
+    # Stream the actual BMP data
+    print $chunk;
+});
