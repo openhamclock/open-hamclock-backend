@@ -867,8 +867,8 @@ services:
         volume:
           subpath: ham/HamClock/ssn
         read_only: true
-    shm_size: "128mb"    # /dev/shm for fast VOACAP temp files
-    mem_limit: "2048m"
+    shm_size: "2gb"    # /dev/shm for fast VOACAP temp files
+    mem_limit: "4gb"
     cpus: "4.0"
     tmpfs:
       - /run:size=16m

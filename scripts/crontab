@@ -38,56 +38,56 @@ LC_ALL=C
 LANG=C
 
 # get the latest stable and beta versions
-57 * * * * /opt/hamclock-backend/scripts/update_versions.pl >> /opt/hamclock-backend/logs/update_versions.pl 2>&1
+57 * * * *     $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_versions.pl
 
-44 * * * *     $VENV/bin/python3 $BASE/scripts/ssn_simple.py            >> $BASE/logs/ssn_simple.log 2>&1
-*/5 * * * *    $VENV/bin/python3 $BASE/scripts/swind_simple.py          >> $BASE/logs/gen_swind_24hr.log 2>&1
-0-58/2 * * * *   $VENV/bin/python3 $BASE/scripts/bz_simple.py             >> $BASE/logs/bz_simple.log 2>&1
-*/30 * * * *   $VENV/bin/python3 $BASE/scripts/flux_simple.py           >> $BASE/logs/flux_simple.log 2>&1
-1-57/4 * * * *    $VENV/bin/python3 $BASE/scripts/xray_simple.py           >> $BASE/logs/xray_simple.log 2>&1
+44 * * * *     $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/ssn_simple.py
+*/5 * * * *    $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/swind_simple.py
+0-58/2 * * * * $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/bz_simple.py
+*/30 * * * *   $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/flux_simple.py
+1-57/4 * * * * $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/xray_simple.py
 
 # the json updates "estimated" multiple times between its regular 3-hour updates. Also, the 3-hour update isn't
-# an exact time after the 3rd hour. So for the 3 hour updates, we'll do 10 and 40 (AI says it should be ready 
+# an exact time after the 3rd hour. So for the 3 hour updates, we'll do 10 and 40 (AI says it should be ready
 # by 40) and then just do this every hour to catch estimated updates.
-10,40 * * * * $VENV/bin/python3 $BASE/scripts/kindex_simple.py >> $BASE/logs/kindex_simple.log 2>&1
+10,40 * * * *  $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/kindex_simple.py
 
-20,50 * * * *    $VENV/bin/python3 $BASE/scripts/dst_simple.py            >> $BASE/logs/dst_simple.log 2>&1
-25 8 * * *     $VENV/bin/python3 $BASE/scripts/gen_dxpeditions_spots.py >> $BASE/logs/dxpeds.log 2>&1
+20,50 * * * *  $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/dst_simple.py
+25 8 * * *     $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/gen_dxpeditions_spots.py
 
-0 1 * * *      $BASE/scripts/gen_solarflux-history.sh   >> /opt/hamclock-backend/logs/gen_solarflux-history.log 2>&1
-0 1 * * *      $BASE/scripts/gen_ssn_history.pl         >> /opt/hamclock-backend/logs/gen_ssn_history.log 2>&1
-15 3 * * 0     $BASE/scripts/update_pota_parks_cache.sh >> /opt/hamclock-backend/logs/update_pota_parks_cache.log 2>&1
+0 1 * * *      $BASE/scripts/cron-wrapper.sh $BASE/scripts/gen_solarflux-history.sh
+0 1 * * *      $BASE/scripts/cron-wrapper.sh $BASE/scripts/gen_ssn_history.pl
+15 3 * * 0     $BASE/scripts/cron-wrapper.sh $BASE/scripts/update_pota_parks_cache.sh
 
-*/30 * * * *   $VENV/bin/python3 $BASE/scripts/web15rss_fetch.py >> $BASE/logs/web15rss_fetch.log 2>&1
+*/30 * * * *   $BASE/scripts/cron-wrapper.sh $VENV/bin/python3 $BASE/scripts/web15rss_fetch.py
 
-*/2 * * * *    OWM_REQS_PER_RUN=50 $VENV/bin/python3 $BASE/scripts/update_world_wx.py >>/opt/hamclock-backend/logs/update_world_wx.log 2>&1
+*/2 * * * *    $BASE/scripts/cron-wrapper.sh OWM_REQS_PER_RUN=50 $VENV/bin/python3 $BASE/scripts/update_world_wx.py
 
-5 */8 * * *    $BASE/scripts/gen_contest-calendar.sh    >> /opt/hamclock-backend/logs/gen_contest-calendar.log 2>&1
+5 */8 * * *    $BASE/scripts/cron-wrapper.sh $BASE/scripts/gen_contest-calendar.sh
 
 # Runs AMSAT Active Satellite Filter and builds TLEs
-0 */2 * * *    $BASE/scripts/fetch_tle.sh               >> /opt/hamclock-backend/logs/fetch_tle.log 2>&1
+0 */2 * * *    $BASE/scripts/cron-wrapper.sh $BASE/scripts/fetch_tle.sh
 
 # Give NOAA time to breathe
-2,17,32,47 * * * * /opt/hamclock-backend/scripts/gen_aurora.py >> /opt/hamclock-backend/logs/gen_aurora.log 2>&1
-*/30 * * * * /opt/hamclock-backend/scripts/gen_noaaswx.sh >> /opt/hamclock-backend/logs/gen_noaswxx.log 2>&1
+2,17,32,47 * * * * $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/gen_aurora.py
+*/30 * * * *   $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/gen_noaaswx.sh
 
 # POTA, SOTA, WWFF
-0 3 * * 1 /opt/hamclock-backend/scripts/update_wwff_cache.pl >> /opt/hamclock-backend/logs/update_wwff_cache.log 2>&1
-0 4 * * 1,4 /opt/hamclock-backend/scripts/update_sota_cache.pl >> /opt/hamclock-backend/logs/update_sota_cache.log 2>&1
-1-59/2 * * * * /opt/hamclock-backend/scripts/gen_onta.pl >> /opt/hamclock-backend/logs/gen_onta.log 2>&1
+0 3 * * 1      $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_wwff_cache.pl
+0 4 * * 1,4    $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_sota_cache.pl
+1-59/2 * * * * $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/gen_onta.pl
 
-1-56/5 * * * * /opt/hamclock-backend/scripts/gen_drap.sh >> /opt/hamclock-backend/logs/gen_drap.log 2>&1
+1-56/5 * * * * $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/gen_drap.sh
 
-20 2 * * * /opt/hamclock-backend/scripts/gen_cty_wt_mod.sh >> /opt/hamclock-backend/logs/gen_cty_wt_mod.sh 2>&1
+20 2 * * *     $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/gen_cty_wt_mod.sh
 
-*/30 * * * * flock -n /tmp/update_sdo.lock /opt/hamclock-backend/scripts/update_all_sdo.sh >> /opt/hamclock-backend/logs/update_all_sdo.log 2>&1
+*/30 * * * *   $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_all_sdo.sh
 
 # maps
-10,40 * * * *          /opt/hamclock-backend/scripts/kc2g_muf_heatmap.sh    >> /opt/hamclock-backend/logs/kc2g_muf_heatmap.log   2>&1
-20 */3 * * *           /opt/hamclock-backend/scripts/update_cloud_maps.sh   >> /opt/hamclock-backend/logs/update_cloud_maps.log  2>&1
-*/5 * * * *             /opt/hamclock-backend/scripts/update_drap_maps.sh    >> /opt/hamclock-backend/logs/update_drap_maps.log   2>&1
-3,18,33,48 * * * * /opt/hamclock-backend/scripts/update_aurora_maps.sh  >> /opt/hamclock-backend/logs/update_aurora_maps.log 2>&1
-0 2,8,14,20 * * *   /opt/hamclock-backend/scripts/update_wx_mb_maps.sh   >> /opt/hamclock-backend/logs/update_wx_mb_maps.log  2>&1
+10,40 * * * *  $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/kc2g_muf_heatmap.sh
+20 */3 * * *   $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_cloud_maps.sh
+*/5 * * * *    $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_drap_maps.sh
+3,18,33,48 * * * * $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_aurora_maps.sh
+0 2,8,14,20 * * *   $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/update_wx_mb_maps.sh
 
-*/30 * * * * /opt/hamclock-backend/scripts/probe_dynamic_endpoints.sh >> /opt/hamclock-backend/logs/probe_dynamic_endpoints.log 2>&1
-*/5 * * * * /opt/hamclock-backend/scripts/generate_status_json.sh >> /opt/hamclock-backend/logs/generate_status_json.log 2>&1
+*/30 * * * *   $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/probe_dynamic_endpoints.sh
+*/5 * * * *    $BASE/scripts/cron-wrapper.sh /opt/hamclock-backend/scripts/generate_status_json.sh
