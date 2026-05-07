@@ -128,17 +128,19 @@ classify() {
 probe() {
     local path="$1"
     local url="${BASE}/${path}"
-    local start_ns end_ns code=000 bytes=0 elapsed_ms=0
+    local start_ns end_ns code=0 bytes=0 elapsed_ms=0
     
     # Use %s if %N is not supported (e.g. non-GNU date)
     start_ns=$(date +%s%N 2>/dev/null || date +%s)
     
     # Capture curl output to a variable first to ensure we get clean data
-    local response
-    response=$(curl -sS -o /dev/null --max-time "$TIMEOUT" \
+    local resp
+    resp=$(curl -sS -o /dev/null --max-time "$TIMEOUT" \
                     -w '%{http_code} %{size_download}' \
                     "$url" 2>/dev/null || echo "000 0")
-    read -r code bytes <<< "$response"
+    # Strictly take only the first two space-separated words
+    code=$(echo "$resp" | awk '{print $1}' | tr -dc '0-9' | sed 's/^0*//; s/^$/0/')
+    bytes=$(echo "$resp" | awk '{print $2}' | tr -dc '0-9' | sed 's/^0*//; s/^$/0/')
     
     end_ns=$(date +%s%N 2>/dev/null || date +%s)
 
@@ -146,8 +148,8 @@ probe() {
     [[ "$start_ns" =~ ^[0-9]+$ ]] && [[ "$end_ns" =~ ^[0-9]+$ ]] && [ "$end_ns" -gt "$start_ns" ] \
         && elapsed_ms=$(( (end_ns - start_ns) / 1000000 )) || elapsed_ms=0
 
-    # Force numeric output to prevent spaces leaking into caller's read command
-    printf "%d %d %d\n" "${code:-0}" "${bytes:-0}" "${elapsed_ms:-0}"
+    # Return strictly sanitized integers
+    echo "$code $bytes $elapsed_ms"
 }
 
 # ── Sanity-check output dir ─────────────────────────────────────────────────
@@ -190,10 +192,10 @@ first=1
             FAILED)  failed=$((  failed  + 1 )) ;;
         esac
 
-        # Force numeric types and sanitize to prevent malformed JSON values like "0 10011"
-        clean_code=$(echo "$code" | tr -dc '0-9' | sed 's/^$/0/')
-        clean_bytes=$(echo "$bytes" | tr -dc '0-9' | sed 's/^$/0/')
-        clean_elapsed=$(echo "$elapsed_ms" | tr -dc '0-9' | sed 's/^$/0/')
+        # Strictly sanitize results from probe to ensure valid JSON and decimal interpretation
+        clean_code=$(echo "$code" | awk '{print $1}' | tr -dc '0-9' | sed 's/^0*//; s/^$/0/')
+        clean_bytes=$(echo "$bytes" | awk '{print $1}' | tr -dc '0-9' | sed 's/^0*//; s/^$/0/')
+        clean_elapsed=$(echo "$elapsed_ms" | awk '{print $1}' | tr -dc '0-9' | sed 's/^0*//; s/^$/0/')
 
         # JSON-escape the label and path
         safe_label=$(printf '%s' "$label" | sed 's/\\/\\\\/g; s/"/\\"/g')
