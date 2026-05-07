@@ -20,6 +20,7 @@ libdbd-sqlite3-perl
 libdbi-perl
 libhtml-parser-perl
 libjson-perl
+libmojolicious-perl
 librsvg2-bin
 libsort-versions-perl
 libtext-csv-xs-perl

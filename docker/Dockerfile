@@ -110,6 +110,7 @@ RUN cd /opt/hamclock-backend && \
     # \
     # set up lighttpd \
     cp lighttpd-conf/*.conf /etc/lighttpd/conf-available/ && \
+    /usr/sbin/lighty-disable-mod javascript-alias && \
     /usr/sbin/lighty-enable-mod accesslog && \
     /usr/sbin/lighttpd-enable-mod hamclock && \
     /usr/sbin/lighttpd-enable-mod hc-firmware && \

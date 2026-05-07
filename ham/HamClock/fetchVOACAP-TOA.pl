@@ -1,22 +1,48 @@
 #!/usr/bin/perl
 #
-# fetchVOACAP-TOA.pl - HamClock VOACAP take-off-angle proxy to voacap-service
+# fetchVOACAP-TOA.pl - HamClock VOACAP TOA proxy to voacap-service
 #
-# Thin HTTP proxy that forwards the HamClock query string to the voacap-service
-# container and streams the response back unchanged. voacap-service handles all
-# VOACAP execution, concurrency, and output formatting; HamClock sees identical
-# wire-protocol output.
+# Non-blocking HTTP proxy. Forwards the HamClock query string to the
+# voacap-service container and streams the response back unchanged.
+#
+# WHY NON-BLOCKING:
+#   HamClock's client-side fetch timeout is short (~2s). voacap-service
+#   takes 5-30s to render an area map. With a blocking LWP client the CGI
+#   sat inside ->get() and never noticed that HamClock had hung up; the
+#   socket pile-up in CLOSE_WAIT and the wasted voacapl CPU only ended
+#   when the upstream response finally arrived. With ~150 concurrent
+#   retries that is a major resource sink.
+#
+#   This version runs Mojo's IOLoop and streams the response body to
+#   stdout in chunks via syswrite(). Each chunk write reveals whether
+#   HamClock is still listening: a closed pipe returns undef + EPIPE,
+#   at which point we abort the upstream transaction. Aborting closes
+#   our socket to nginx, which closes nginx's socket to uWSGI, which
+#   triggers voacap-service's cancellable runner.
+#
+# LIMITATION:
+#   Linux pipe semantics make it impossible to detect a closed reader
+#   without attempting a real write. So during the "voacapl is computing,
+#   no body bytes yet" window we cannot detect HamClock leaving. Once
+#   the first body chunk arrives, detection is immediate. In practice
+#   this still cuts CLOSE_WAIT lifetime from ~30s to milliseconds for
+#   any request that produces a body.
 #
 # Configuration (environment variables):
-#   VOACAP_SERVICE_URL  Base URL of the voacap-service
+#   VOACAP_SERVICE_URL  Base URL of voacap-service.
 #                       Default: http://voacap-service:8080
 #
-# Author: Open HamClock Backend (OHB) project
 # License: AGPLv3
 
 use strict;
 use warnings;
-use LWP::UserAgent;
+
+use Mojo::UserAgent;
+use Mojo::IOLoop;
+
+# We do not want SIGPIPE to kill us — we want to detect EPIPE via syswrite's
+# return value and act on it ourselves.
+$SIG{PIPE} = 'IGNORE';
 
 # —————————————————————————
 # Configuration
@@ -25,58 +51,138 @@ use LWP::UserAgent;
 my $SERVICE_URL = $ENV{VOACAP_SERVICE_URL} || 'http://voacap-service:8080';
 my $ENDPOINT    = "$SERVICE_URL/fetchVOACAP-TOA.pl";
 
-# Timeout layers (shortest first):
-#   Python subprocess(voacapl) = 120s   (area_map.py)
-#   nginx uwsgi_read_timeout   = 300s   (nginx.conf)
-#   This LWP timeout           = 300s   <-- matches nginx so we give up together
-#   lighttpd server.max-read-idle = 300s (54-voacap-cgi-timeouts.conf)
-#   uWSGI harakiri             = 300s   (uwsgi.ini)
+# Hard upper bound on the proxied request. Matches voacap-service's
+# uWSGI harakiri ceiling so legitimate slow maps still complete.
 my $TIMEOUT = 300;
 
 # —————————————————————————
-# Forward query string verbatim — voacap-service handles validation and
-# returns 400 with a clear message if anything is malformed.
+# Forward query string verbatim. voacap-service handles validation.
 # —————————————————————————
 
 my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
-my $ua  = LWP::UserAgent->new(timeout => $TIMEOUT);
 my $url = $qs ? "$ENDPOINT?$qs" : $ENDPOINT;
-my $res = $ua->get($url);
-
-# LWP returns code 0 for client-side failures (connection refused, DNS,
-# its own timeout). Treat those as 502 Bad Gateway with a plain-text body
-# so the operator can see what happened. For everything else — including
-# upstream 4xx — forward the response through unchanged so the client
-# gets voacap-service's actual error message.
-if ($res->code == 0) {
-    print STDERR "fetchVOACAP-TOA: voacap-service unreachable: ",
-                 $res->status_line, " ($url)\n";
-    print "Status: 502 Bad Gateway\r\n";
-    print "Content-Type: text/plain\r\n\r\n";
-    print "voacap-service unreachable: ", $res->status_line, "\n";
-    exit 1;
-}
 
 binmode(STDOUT);
 
-# 1. Status line (forwarded from upstream, including 4xx/5xx).
-print "Status: " . $res->code . " " . $res->message . "\r\n";
+# Shared state for the IOLoop callbacks.
+my $headers_sent = 0;   # have we already emitted CGI headers to stdout?
+my $aborted      = 0;   # set when we cancel due to client disconnect
 
-# 2. Forward upstream headers, with two adjustments:
-#    - HamClock client expects the lowercase 'l' in X-2Z-lengths; LWP's
-#      header normalization Title-Cases it. Force it back.
-#    - Strip hop-by-hop and content-encoding/length headers that lighttpd's
-#      CGI handler will recompute or that would break the proxied connection.
-my $header_block = $res->headers->as_string("\r\n");
-$header_block =~ s/X-2Z-Lengths/X-2Z-lengths/g;
+my $ua = Mojo::UserAgent->new
+    ->connect_timeout(5)
+    ->request_timeout($TIMEOUT)
+    ->max_redirects(0);
 
-foreach my $line (split(/\r\n/, $header_block)) {
-    next if $line =~ /^(Transfer-Encoding|Connection|Content-Length|Client-)/i;
-    print "$line\r\n";
+my $tx = $ua->build_tx(GET => $url);
+
+# Stream upstream body to stdout chunk-by-chunk. Each syswrite reveals
+# whether the downstream client is still there.
+$tx->res->content->unsubscribe('read')->on(read => sub {
+    my ($content, $bytes) = @_;
+    return if $aborted;
+
+    # Send CGI headers on first chunk (which is also when upstream headers
+    # are first available — Mojo populates them before firing 'read').
+    if (!$headers_sent) {
+        emit_headers($tx->res);
+        $headers_sent = 1;
+    }
+
+    return unless length $bytes;   # final 0-byte event signalling EOF
+
+    my $written = syswrite(STDOUT, $bytes);
+    if (!defined $written) {
+        # Client gone (EPIPE) or other write error. Cancel upstream so the
+        # socket closes and the disconnect propagates to voacap-service.
+        $aborted = 1;
+        $tx->res->error({message => "client write failed: $!"});
+        Mojo::IOLoop->stop;
+    }
+});
+
+$ua->start($tx => sub {
+    my ($ua, $tx) = @_;
+    Mojo::IOLoop->stop;
+});
+
+Mojo::IOLoop->start;
+
+# —————————————————————————
+# Post-mortem
+# —————————————————————————
+
+if ($aborted) {
+    # Client gave up. Upstream is cancelled; lighttpd will reap us.
+    exit 1;
 }
 
-# 3. End headers, write body.
-print "\r\n";
-print $res->content;
+my $err = $tx->error;
+if ($err) {
+    # Upstream connect/read failed. If we haven't sent headers yet, send 502.
+    if (!$headers_sent) {
+        my $msg = $err->{message} // 'unknown';
+        print STDERR "fetchVOACAP-TOA: upstream failed: $msg ($url)\n";
+        my $body = "voacap-service unreachable: $msg\n";
+        syswrite(STDOUT,
+            "Status: 502 Bad Gateway\r\n" .
+            "Content-Type: text/plain\r\n" .
+            "\r\n" .
+            $body);
+    }
+    exit 1;
+}
+
+# Edge case: a successful response with zero body (e.g. an upstream 4xx with
+# empty body). The read handler may not have fired with any non-zero chunk,
+# so headers were never emitted. Emit them now.
+if (!$headers_sent) {
+    emit_headers($tx->res);
+    my $body = $tx->res->body // '';
+    syswrite(STDOUT, $body) if length $body;
+}
 
 exit 0;
+
+# —————————————————————————
+# Header forwarding
+# —————————————————————————
+#
+# Two adjustments versus a verbatim copy:
+#   - HamClock expects lowercase 'l' in X-2Z-lengths. Mojo's headers object
+#     preserves the case it was given over the wire, but to_hash() normalises
+#     by canonical key. We force the lowercase variant on output.
+#   - Strip hop-by-hop and Content-Length / Transfer-Encoding headers; the
+#     CGI gateway will recompute these and our forwarded values can confuse
+#     lighttpd (especially Transfer-Encoding: chunked which it strips for us).
+
+sub emit_headers {
+    my $res = shift;
+
+    my $code = $res->code    // 502;
+    my $msg  = $res->message // 'Unknown';
+
+    # Build the entire header block as one string and syswrite it. We avoid
+    # `print` here because the body is written via syswrite (for disconnect
+    # detection) — mixing buffered print with unbuffered syswrite on the
+    # same fd lets body bytes reach the kernel before the buffered headers
+    # are flushed, scrambling the response.
+    my $hdr = "Status: $code $msg\r\n";
+
+    # Use to_hash(1) to get arrayref values for multi-valued headers.
+    my $headers = $res->headers->to_hash(1);
+    for my $name (sort keys %$headers) {
+        next if $name =~ /^(Transfer-Encoding|Connection|Content-Length|Client-)/i;
+
+        # HamClock-specific casing fix
+        my $out_name = ($name =~ /^X-2Z-Lengths$/i) ? 'X-2Z-lengths' : $name;
+
+        my $values = $headers->{$name};
+        $values = [$values] unless ref $values eq 'ARRAY';
+        for my $v (@$values) {
+            $hdr .= "$out_name: $v\r\n";
+        }
+    }
+
+    $hdr .= "\r\n";
+    syswrite(STDOUT, $hdr);
+}
