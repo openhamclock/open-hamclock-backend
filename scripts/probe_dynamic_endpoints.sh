@@ -146,7 +146,8 @@ probe() {
     [[ "$start_ns" =~ ^[0-9]+$ ]] && [[ "$end_ns" =~ ^[0-9]+$ ]] && [ "$end_ns" -gt "$start_ns" ] \
         && elapsed_ms=$(( (end_ns - start_ns) / 1000000 )) || elapsed_ms=0
 
-    echo "${code:-000} ${bytes:-0} ${elapsed_ms:-0}"
+    # Force numeric output to prevent spaces leaking into caller's read command
+    printf "%d %d %d\n" "${code:-0}" "${bytes:-0}" "${elapsed_ms:-0}"
 }
 
 # ── Sanity-check output dir ─────────────────────────────────────────────────
@@ -189,7 +190,13 @@ first=1
             FAILED)  failed=$((  failed  + 1 )) ;;
         esac
 
-        # JSON-escape the path (only quotes/backslashes can appear here)
+        # Force numeric types and sanitize to prevent malformed JSON values like "0 10011"
+        clean_code=$(echo "$code" | tr -dc '0-9' | sed 's/^$/0/')
+        clean_bytes=$(echo "$bytes" | tr -dc '0-9' | sed 's/^$/0/')
+        clean_elapsed=$(echo "$elapsed_ms" | tr -dc '0-9' | sed 's/^$/0/')
+
+        # JSON-escape the label and path
+        safe_label=$(printf '%s' "$label" | sed 's/\\/\\\\/g; s/"/\\"/g')
         safe_path=$(printf '%s' "$path" | sed 's/\\/\\\\/g; s/"/\\"/g')
         # Render tolerant as a real JSON boolean
         if [ "$tolerant" = "1" ]; then tolerant_json="true"; else tolerant_json="false"; fi
@@ -197,11 +204,11 @@ first=1
         [ "$first" -eq 0 ] && printf ',\n'
         first=0
         printf '    {\n'
-        printf '      "label": "%s",\n'              "$label"
+        printf '      "label": "%s",\n'              "$safe_label"
         printf '      "path": "/ham/HamClock/%s",\n' "$safe_path"
-        printf '      "http_code": %s,\n'            "$code"
-        printf '      "bytes": %s,\n'                "$bytes"
-        printf '      "elapsed_ms": %s,\n'           "$elapsed_ms"
+        printf '      "http_code": %d,\n'            "$clean_code"
+        printf '      "bytes": %d,\n'                "$clean_bytes"
+        printf '      "elapsed_ms": %d,\n'           "$clean_elapsed"
         printf '      "tolerant": %s,\n'             "$tolerant_json"
         printf '      "status": "%s",\n'             "$status"
         printf '      "checked_utc": "%s"\n'         "$NOW"
