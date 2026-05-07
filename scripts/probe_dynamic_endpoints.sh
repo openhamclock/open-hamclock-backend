@@ -128,14 +128,25 @@ classify() {
 probe() {
     local path="$1"
     local url="${BASE}/${path}"
-    local start_ns end_ns code bytes elapsed_ms
-    start_ns=$(date +%s%N)
-    read -r code bytes < <(curl -sS -o /dev/null --max-time "$TIMEOUT" \
-                                -w '%{http_code} %{size_download}' \
-                                "$url" 2>/dev/null || echo "000 0")
-    end_ns=$(date +%s%N)
-    elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
-    echo "$code $bytes $elapsed_ms"
+    local start_ns end_ns code=000 bytes=0 elapsed_ms=0
+    
+    # Use %s if %N is not supported (e.g. non-GNU date)
+    start_ns=$(date +%s%N 2>/dev/null || date +%s)
+    
+    # Capture curl output to a variable first to ensure we get clean data
+    local response
+    response=$(curl -sS -o /dev/null --max-time "$TIMEOUT" \
+                    -w '%{http_code} %{size_download}' \
+                    "$url" 2>/dev/null || echo "000 0")
+    read -r code bytes <<< "$response"
+    
+    end_ns=$(date +%s%N 2>/dev/null || date +%s)
+
+    # Calculate elapsed time; handle cases where %N is literal or math fails
+    [[ "$start_ns" =~ ^[0-9]+$ ]] && [[ "$end_ns" =~ ^[0-9]+$ ]] && [ "$end_ns" -gt "$start_ns" ] \
+        && elapsed_ms=$(( (end_ns - start_ns) / 1000000 )) || elapsed_ms=0
+
+    echo "${code:-000} ${bytes:-0} ${elapsed_ms:-0}"
 }
 
 # ── Sanity-check output dir ─────────────────────────────────────────────────
@@ -202,7 +213,10 @@ first=1
 
     # Fetch custom metrics from node-exporter
     count_24h=$(curl -sS --max-time "$TIMEOUT" "$NODE_EXPORTER_URL" 2>/dev/null | grep "^count_24_hours" | awk '{print $2}')
-    [ -z "$count_24h" ] && count_24h=0
+    # Ensure count_24h is a valid integer
+    if ! [[ "$count_24h" =~ ^[0-9]+$ ]]; then
+        count_24h=0
+    fi
 
     printf '\n  ],\n'
     printf '  "summary": {\n'

@@ -38,8 +38,30 @@
 
 # ── Config ──────────────────────────────────────────────────────────────────
 # Load external thresholds
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/status_settings.conf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # Ensure SCRIPT_DIR is set
+STATUS_SETTINGS_CONF="${SCRIPT_DIR}/status_settings.conf"
+
+# Provide default thresholds if the config file is missing or values are not set
+THRESH_BZ_ONTA_WX="${THRESH_BZ_ONTA_WX:-300 600 1800}"
+THRESH_DRAP_WIND="${THRESH_DRAP_WIND:-600 1200 3600}"
+THRESH_XRAY="${THRESH_XRAY:-300 600 1800}"
+THRESH_AURORA="${THRESH_AURORA:-1800 3600 7200}"
+THRESH_SDO_SPACE="${THRESH_SDO_SPACE:-3600 7200 14400}"
+THRESH_SSN="${THRESH_SSN:-86400 172800 259200}" # 1d 2d 3d
+THRESH_ESATS="${THRESH_ESATS:-3600 7200 14400}"
+THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
+THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
+THRESH_MAP="${THRESH_MAP:-3600 7200 14400}"
+THRESH_DEFAULT="${THRESH_DEFAULT:-3600 7200 14400}"
+THRESH_CLOUDS="${THRESH_CLOUDS:-3600 7200 14400}"
+THRESH_WX_MAP="${THRESH_WX_MAP:-3600 7200 14400}"
+THRESH_SOLAR_HISTORY="${THRESH_SOLAR_HISTORY:-2592000 5184000 7776000}" # 30d 60d 90d
+
+if [ -r "$STATUS_SETTINGS_CONF" ]; then
+    source "$STATUS_SETTINGS_CONF"
+else
+    echo "WARNING: status_settings.conf not found or not readable. Using default thresholds." >&2
+fi
 
 DATA_DIR="/opt/hamclock-backend/htdocs/ham/HamClock"
 MAPS_DIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
@@ -47,8 +69,9 @@ SDO_DIR="/opt/hamclock-backend/htdocs/ham/HamClock/SDO"
 OUTPUT="/opt/hamclock-backend/htdocs/ham/HamClock/status.html"
 OUTPUT_JSON="${OUTPUT%.html}.json"
 DYNAMIC_SIDECAR="/opt/hamclock-backend/htdocs/ham/HamClock/dynamic_status.json"
-CALLSIGN="OHB"          # your station callsign
-VERSION=$(cat /opt/hamclock-backend/git.version | cut -b -12)
+CALLSIGN="OHB" # your station callsign
+VERSION=$(cat /opt/hamclock-backend/git.version 2>/dev/null | cut -b -12)
+VERSION="${VERSION:-unknown}" # Provide a default if git.version is missing or empty
 TZ_LABEL="UTC"          # display timezone label
 
 # Named data product subdirectories to enumerate (order preserved in output).
@@ -159,29 +182,39 @@ DYN_GENERATED=""
 DYN_AGE_SEC=0
 DYN_AVAILABLE=0
 
-if [ -r "$DYNAMIC_SIDECAR" ] && command -v jq >/dev/null 2>&1; then
-    DYN_AVAILABLE=1
-    DYN_OVERALL=$(jq   -r '.overall // "UNKNOWN"'    "$DYNAMIC_SIDECAR")
-    DYN_TOTAL=$(jq     -r '.summary.total   // 0'    "$DYNAMIC_SIDECAR")
-    DYN_ACTIVE=$(jq    -r '.summary.active  // 0'    "$DYNAMIC_SIDECAR")
-    DYN_IDLE=$(jq      -r '.summary.idle    // 0'    "$DYNAMIC_SIDECAR")
-    DYN_HEALTHY=$(jq   -r '.summary.healthy // 0'    "$DYNAMIC_SIDECAR")
-    DYN_EMPTY=$(jq     -r '.summary.empty   // 0'    "$DYNAMIC_SIDECAR")
-    DYN_FAILED=$(jq    -r '.summary.failed  // 0'    "$DYNAMIC_SIDECAR")
-    DYN_TIMEOUT=$(jq   -r '.summary.timeout // 0'    "$DYNAMIC_SIDECAR")
-    DYN_COUNT_24H=$(jq -r '.summary.count_24h // 0'  "$DYNAMIC_SIDECAR")
-    DYN_GENERATED=$(jq -r '.generated_utc   // ""'   "$DYNAMIC_SIDECAR")
-    # Backward-compat: if sidecar predates "healthy" key, fall back to active
-    [ "$DYN_HEALTHY" -eq 0 ] && [ "$DYN_ACTIVE" -gt 0 ] && DYN_HEALTHY="$DYN_ACTIVE"
-    if [ -n "$DYN_GENERATED" ]; then
-        DYN_GEN_EPOCH=$(date -u -d "$DYN_GENERATED" +%s 2>/dev/null || echo "$NOW_EPOCH")
-        DYN_AGE_SEC=$(( NOW_EPOCH - DYN_GEN_EPOCH ))
-        # If the sidecar is older than 90 minutes (3 missed runs) treat it as stale.
-        if [ "$DYN_AGE_SEC" -gt 5400 ]; then DYN_OVERALL="STALE"; fi
+DYNAMIC_SIDECAR_CONTENT=""
+if [ -r "$DYNAMIC_SIDECAR" ]; then
+    # Read content once to avoid multiple file reads
+    DYNAMIC_SIDECAR_CONTENT=$(cat "$DYNAMIC_SIDECAR")
+    # Check if content is non-empty and valid JSON using jq -e
+    if [ -n "$DYNAMIC_SIDECAR_CONTENT" ] && command -v jq >/dev/null 2>&1 && echo "$DYNAMIC_SIDECAR_CONTENT" | jq -e . >/dev/null 2>&1; then
+        DYN_AVAILABLE=1
+        DYN_OVERALL=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.overall // "UNKNOWN"')
+        DYN_TOTAL=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.total // 0')
+        DYN_ACTIVE=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.active // 0')
+        DYN_IDLE=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.idle // 0')
+        DYN_HEALTHY=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.healthy // 0')
+        DYN_EMPTY=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.empty // 0')
+        DYN_FAILED=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.failed // 0')
+        DYN_TIMEOUT=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.timeout // 0')
+        DYN_COUNT_24H=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.summary.count_24h // 0')
+        DYN_GENERATED=$(echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '.generated_utc // ""')
+        # Backward-compat: if sidecar predates "healthy" key, fall back to active
+        [ "$DYN_HEALTHY" -eq 0 ] && [ "$DYN_ACTIVE" -gt 0 ] && DYN_HEALTHY="$DYN_ACTIVE"
+        if [ -n "$DYN_GENERATED" ]; then
+            DYN_GEN_EPOCH=$(date -u -d "$DYN_GENERATED" +%s 2>/dev/null || echo "$NOW_EPOCH")
+            DYN_AGE_SEC=$(( NOW_EPOCH - DYN_GEN_EPOCH ))
+            # If the sidecar is older than 90 minutes (3 missed runs) treat it as stale.
+            if [ "$DYN_AGE_SEC" -gt 5400 ]; then DYN_OVERALL="STALE"; fi
+        fi
+    else
+        echo "WARNING: $DYNAMIC_SIDECAR is empty or malformed JSON. Treating as unavailable." >&2
     fi
+else
+    echo "WARNING: $DYNAMIC_SIDECAR not found or not readable. Treating as unavailable." >&2
 fi
 
-dyn_badge_class() {
+dyn_badge_class() { # This function is fine as is, it just maps states to CSS classes
     case "$1" in
         OK)       echo "ok" ;;
         DEGRADED) echo "warn" ;;
@@ -279,7 +312,7 @@ build_dynamic_rows() {
         return
     fi
 
-    jq -r '
+    echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '
         .endpoints[] |
         "    <tr>" +
         "<td class=\"name\">" + .path + "</td>" +
@@ -374,8 +407,8 @@ build_json() {
         # Inline the full dynamic sidecar (or null if missing) so consumers
         # have one place to look. Cheap: it's already JSON.
         if [ "$DYN_AVAILABLE" -eq 1 ]; then
-            printf '  "dynamic": '
-            cat "$DYNAMIC_SIDECAR"
+            # Use the already read and validated content
+            printf '  "dynamic": %s,\n' "$DYNAMIC_SIDECAR_CONTENT"
             printf ',\n'
         else
             printf '  "dynamic": null,\n'
