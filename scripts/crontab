@@ -28,13 +28,13 @@
 
 SHELL=/bin/bash
 BASE=/opt/hamclock-backend
-SCRIPTS=$BASE/scripts
-VENV=$BASE/venv
-VIRTUAL_ENV=$BASE/venv
+SCRIPTS=/opt/hamclock-backend/scripts
+VENV=/opt/hamclock-backend/venv
+VIRTUAL_ENV=/opt/hamclock-backend/venv
 HOME=/var/www
-XDG_CACHE_HOME=$BASE/tmp
-MPLCONFIGDIR=$BASE/tmp/mpl
-PATH=$BASE/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+XDG_CACHE_HOME=/opt/hamclock-backend/tmp
+MPLCONFIGDIR=/opt/hamclock-backend/tmp/mpl
+PATH=/opt/hamclock-backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LC_ALL=C
 LANG=C
 
