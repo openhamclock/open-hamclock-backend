@@ -43,6 +43,7 @@ DEFAULT_CERT_PATH=-
 DEFAULT_EXTERNAL_HTTP_LOG=false
 # the following env is the lighttpd env file
 DEFAULT_ENV_FILE="$STARTED_FROM/.env"
+DEFAULT_MAP_SIZES=-
 
 # the following env is for sticky settings
 STICKY_ENV_FILE=$DOCKER_PROJECT.env
@@ -118,7 +119,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":p:s:c:t:e:l:" opt; do
+    while getopts ":c:e:l:m:p:s:t:" opt; do
         case $opt in
             c)
                 REQUESTED_CERT_PATH="$OPTARG"
@@ -132,6 +133,9 @@ get_compose_opts() {
                     echo "ERROR: -$opt option must be <true|false>"
                     exit 1
                 fi
+                ;;
+            m)
+                REQUESTED_MAP_SIZES="$OPTARG"
                 ;;
             p)
                 REQUESTED_HTTP_PORT="$OPTARG"
@@ -236,6 +240,7 @@ STICKY_HTTPS_PORT="$HTTPS_PORT"
 STICKY_LIGHTTPD_ENV_FILE="$ENV_FILE"
 STICKY_EXTERNAL_HTTP_LOG="$ENABLE_EXTERNAL_HTTP_LOG"
 STICKY_CERT_PATH="$CERT_PATH"
+STICKY_MAP_SIZES="$MAP_SIZES"
 EOF
 }
 
@@ -739,6 +744,29 @@ determine_https_cert() {
     fi
 }
 
+determine_map_sizes() {
+
+    # first precedence
+    if [ -n "$REQUESTED_MAP_SIZES" ]; then
+        MAP_SIZES=$REQUESTED_MAP_SIZES
+
+    # second precedence
+    elif [ -n "$STICKY_MAP_SIZES" ]; then
+        MAP_SIZES=$STICKY_MAP_SIZES
+
+    # third precedence
+    else
+        MAP_SIZES=$DEFAULT_MAP_SIZES
+
+    fi
+
+    if [ "$MAP_SIZES" == - ]; then
+        unset MAP_SIZES_MAPPING
+    else
+        MAP_SIZES_MAPPING="MAP_SIZES: $MAP_SIZES"
+    fi
+}
+
 determine_tag() {
     get_current_image_tag
 
@@ -782,6 +810,7 @@ docker_compose_yml() {
     determine_https_port
     determine_https_cert
     determine_http_log
+    determine_map_sizes
 
     determine_tag || return $?
     IMAGE=$IMAGE_BASE:$TAG
@@ -806,6 +835,7 @@ services:
     environment:
       HOST_HOSTNAME: $HOSTNAME
       PSKR_UID: 1001
+      $MAP_SIZES_MAPPING
     networks:
       - ohb
     ports:
