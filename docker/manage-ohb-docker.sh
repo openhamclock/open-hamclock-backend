@@ -127,7 +127,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":c:e:l:m:p:s:t:" opt; do
+    while getopts ":c:e:l:p:r:s:t:" opt; do
         case $opt in
             c)
                 REQUESTED_CERT_PATH="$OPTARG"
@@ -142,7 +142,7 @@ get_compose_opts() {
                     exit 1
                 fi
                 ;;
-            m)
+            r)
                 REQUESTED_MAP_SIZES="${OPTARG,,}"
                 if [[ ! " ${SUPPORTED_MAP_SIZES[*]} " =~ " ${REQUESTED_MAP_SIZES} " ]]; then
                     echo "ERROR: -$opt option must be one of:"
@@ -189,19 +189,19 @@ $THIS <COMMAND> [options]:
             do a fresh install and optionally provide the version
             -p: set the HTTP port
             -t: set image tag
-            -m: screen size which limits number of maps generated
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     upgrade [-p <port>] [-t <tag>]
             upgrade ohb; defaults to current git tag if there is one. Otherwise you can provide one.
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
-            -m: screen size which limits number of maps generated
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     full-reset [-p <port>] [-t <tag>]: 
             clear out all data and start fresh
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
-            -m: screen size which limits number of maps generated
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     reset:
             resets the OHB container to new but does not reset the persistent storage
@@ -213,7 +213,7 @@ $THIS <COMMAND> [options]:
             start an existing, not-running OHB install; defaults to current git tag if there is one. Otherwise you can provide one.
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
-            -m: screen size which limits number of maps generated
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     down
             stop a running OHB install
@@ -232,7 +232,7 @@ $THIS <COMMAND> [options]:
             writes the docker compose file to STDOUT
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
-            -m: screen size which limits number of maps generated
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     upgrade-me:
             downloads the latest tagged version of itself and overwrites itself. Runs
