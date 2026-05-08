@@ -145,7 +145,8 @@ get_compose_opts() {
             m)
                 REQUESTED_MAP_SIZES="${OPTARG,,}"
                 if [[ ! " ${SUPPORTED_MAP_SIZES[*]} " =~ " ${REQUESTED_MAP_SIZES} " ]]; then
-                    echo "ERROR: -$opt option must be one of: '${SUPPORTED_MAP_SIZES[*]}'"
+                    echo "ERROR: -$opt option must be one of:"
+                    printf '    %s\n' "${SUPPORTED_MAP_SIZES[@]}"
                     exit 1
                 fi
                 ;;
