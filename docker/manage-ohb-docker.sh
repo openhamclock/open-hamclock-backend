@@ -43,7 +43,7 @@ DEFAULT_CERT_PATH=-
 DEFAULT_EXTERNAL_HTTP_LOG=false
 # the following env is the lighttpd env file
 DEFAULT_ENV_FILE="$STARTED_FROM/.env"
-DEFAULT_MAP_SIZES=-
+DEFAULT_MAP_SIZES=all
 
 # the following env is for sticky settings
 STICKY_ENV_FILE=$DOCKER_PROJECT.env
@@ -51,6 +51,7 @@ REQUEST_DOCKER_PULL=false
 RETVAL=0
 
 SUPPORTED_MAP_SIZES=(
+    all
     1600x960
     3200x1920
     2400x1440
@@ -142,10 +143,9 @@ get_compose_opts() {
                 fi
                 ;;
             m)
-                REQUESTED_MAP_SIZES="$OPTARG"
-                if [[ ! " - ${SUPPORTED_MAP_SIZES[*]} " =~ " ${REQUESTED_MAP_SIZES} " ]]; then
-                    echo "ERROR: -$opt option must be one of: '${SUPPORTED_MAP_SIZES[*]} -'"
-                    echo "       option set to '-' enables all map sizes."
+                REQUESTED_MAP_SIZES="${OPTARG,,}"
+                if [[ ! " ${SUPPORTED_MAP_SIZES[*]} " =~ " ${REQUESTED_MAP_SIZES} " ]]; then
+                    echo "ERROR: -$opt option must be one of: '${SUPPORTED_MAP_SIZES[*]}'"
                     exit 1
                 fi
                 ;;
@@ -188,16 +188,19 @@ $THIS <COMMAND> [options]:
             do a fresh install and optionally provide the version
             -p: set the HTTP port
             -t: set image tag
+            -m: screen size which limits number of maps generated
 
     upgrade [-p <port>] [-t <tag>]
             upgrade ohb; defaults to current git tag if there is one. Otherwise you can provide one.
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -m: screen size which limits number of maps generated
 
     full-reset [-p <port>] [-t <tag>]: 
             clear out all data and start fresh
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -m: screen size which limits number of maps generated
 
     reset:
             resets the OHB container to new but does not reset the persistent storage
@@ -209,6 +212,7 @@ $THIS <COMMAND> [options]:
             start an existing, not-running OHB install; defaults to current git tag if there is one. Otherwise you can provide one.
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -m: screen size which limits number of maps generated
 
     down
             stop a running OHB install
@@ -227,6 +231,7 @@ $THIS <COMMAND> [options]:
             writes the docker compose file to STDOUT
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -m: screen size which limits number of maps generated
 
     upgrade-me:
             downloads the latest tagged version of itself and overwrites itself. Runs
@@ -772,7 +777,7 @@ determine_map_sizes() {
 
     fi
 
-    if [ "$MAP_SIZES" == - ]; then
+    if [ "$MAP_SIZES" == all ]; then
         unset MAP_SIZES_MAPPING
     else
         MAP_SIZES_MAPPING="MAP_SIZES: $MAP_SIZES"
