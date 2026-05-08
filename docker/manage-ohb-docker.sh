@@ -50,6 +50,13 @@ STICKY_ENV_FILE=$DOCKER_PROJECT.env
 REQUEST_DOCKER_PULL=false
 RETVAL=0
 
+SUPPORTED_MAP_SIZES=(
+    1600x960
+    3200x1920
+    2400x1440
+    800x480
+)
+
 main() {
     get_sticky_vars
 
@@ -136,6 +143,11 @@ get_compose_opts() {
                 ;;
             m)
                 REQUESTED_MAP_SIZES="$OPTARG"
+                if [[ ! " - ${SUPPORTED_MAP_SIZES[*]} " =~ " ${REQUESTED_MAP_SIZES} " ]]; then
+                    echo "ERROR: -$opt option must be one of: '${SUPPORTED_MAP_SIZES[*]} -'"
+                    echo "       option set to '-' enables all map sizes."
+                    exit 1
+                fi
                 ;;
             p)
                 REQUESTED_HTTP_PORT="$OPTARG"
