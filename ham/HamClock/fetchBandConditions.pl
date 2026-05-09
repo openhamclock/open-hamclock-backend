@@ -49,7 +49,7 @@ if (open(my $fh, '<', '/opt/hamclock-backend/htdocs/ham/HamClock/ssn/ssn-31.txt'
     my @parts = split ' ', $last_line if $last_line;
     $ssn = $parts[3] if @parts >= 4;
 }
-$qs .= ($qs ? '&' : '') . "ssn=$ssn";
+$qs .= ($qs ? '&' : '') . "ohb-ssn=$ssn";
 my $url = "$ENDPOINT?$qs";
 
 binmode(STDOUT);
