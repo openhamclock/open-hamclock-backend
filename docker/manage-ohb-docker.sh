@@ -44,6 +44,7 @@ DEFAULT_EXTERNAL_HTTP_LOG=false
 # the following env is the lighttpd env file
 DEFAULT_ENV_FILE="$STARTED_FROM/.env"
 DEFAULT_MAP_SIZES=all
+DEFAULT_VOACAP_SERVICE_HOST=voacap-service:8080
 
 # the following env is for sticky settings
 STICKY_ENV_FILE=$DOCKER_PROJECT.env
@@ -853,6 +854,7 @@ services:
     environment:
       HOST_HOSTNAME: $HOSTNAME
       PSKR_UID: 1001
+      VOACAP_SERVICE_HOST: $DEFAULT_VOACAP_SERVICE_HOST
       $MAP_SIZES_MAPPING
     networks:
       - ohb

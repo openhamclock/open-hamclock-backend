@@ -113,6 +113,7 @@ RUN cd /opt/hamclock-backend && \
     /usr/sbin/lighty-disable-mod javascript-alias && \
     /usr/sbin/lighty-enable-mod accesslog && \
     /usr/sbin/lighttpd-enable-mod hamclock && \
+    /usr/sbin/lighttpd-enable-mod voacap-cgi-timeouts && \
     /usr/sbin/lighttpd-enable-mod hc-firmware && \
     /usr/sbin/lighttpd-enable-mod sdo-movies && \
     /usr/sbin/lighttpd-enable-mod hc-diag && \

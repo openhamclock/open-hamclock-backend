@@ -24,7 +24,7 @@ use Mojo::IOLoop;
 
 $SIG{PIPE} = 'IGNORE';
 
-my $SERVICE_URL = $ENV{VOACAP_SERVICE_URL} || 'http://voacap-service:8080';
+my $SERVICE_URL = 'http://'.$ENV{VOACAP_SERVICE_HOST} || 'http://voacap-service:8080';
 my $ENDPOINT    = "$SERVICE_URL/fetchBandConditions";
 
 # Timeout layers (shortest first):
