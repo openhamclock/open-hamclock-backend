@@ -128,7 +128,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":c:e:l:p:r:s:t:" opt; do
+    while getopts ":c:e:l:p:r:s:t:v:" opt; do
         case $opt in
             c)
                 REQUESTED_CERT_PATH="$OPTARG"
@@ -160,6 +160,10 @@ get_compose_opts() {
             t)
                 REQUESTED_TAG="$OPTARG"
                 ;;
+            v)
+                REQUESTED_VOACAP_SERVICE_HOST="$OPTARG"
+                ;;
+
             \?) # Handle invalid options
                 echo "Command '$COMMAND': Invalid option: -$OPTARG" >&2
                 exit 1
@@ -186,23 +190,14 @@ $THIS <COMMAND> [options]:
     check-ohb-install:
             checkif OHB is installed and report versions
 
-    install [-p <port>] [-t <tag>]
+    install
             do a fresh install and optionally provide the version
-            -p: set the HTTP port
-            -t: set image tag
-            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
-    upgrade [-p <port>] [-t <tag>]
+    upgrade
             upgrade ohb; defaults to current git tag if there is one. Otherwise you can provide one.
-            -p: set the HTTP port (defaults to current setting)
-            -t: set image tag
-            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
-    full-reset [-p <port>] [-t <tag>]: 
+    full-reset
             clear out all data and start fresh
-            -p: set the HTTP port (defaults to current setting)
-            -t: set image tag
-            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     reset:
             resets the OHB container to new but does not reset the persistent storage
@@ -210,11 +205,8 @@ $THIS <COMMAND> [options]:
     restart:
             restarts the OHB container. No file contents modified
 
-    up [-p <port>] [-t <tag>]
+    up
             start an existing, not-running OHB install; defaults to current git tag if there is one. Otherwise you can provide one.
-            -p: set the HTTP port (defaults to current setting)
-            -t: set image tag
-            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     down
             stop a running OHB install
@@ -229,16 +221,20 @@ $THIS <COMMAND> [options]:
             to take effect. See the restart command. See .env.example for more info.
             -e: .env file location
 
-    generate-docker-compose [-p <port>] [-t <tag>]: 
+    generate-docker-compose
             writes the docker compose file to STDOUT
-            -p: set the HTTP port (defaults to current setting)
-            -t: set image tag
-            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     upgrade-me:
             downloads the latest tagged version of itself and overwrites itself. Runs
             the new version to confirm it worked. Does an sha256 validation before
             overwriting itself.
+
+The following arguments come after the command:
+            -p: set the HTTP port (defaults to current setting)
+            -t: set image tag
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
+            -v: set voacap-service server host:port
+
 EOF
 }
 
@@ -260,6 +256,7 @@ STICKY_LIGHTTPD_ENV_FILE="$ENV_FILE"
 STICKY_EXTERNAL_HTTP_LOG="$ENABLE_EXTERNAL_HTTP_LOG"
 STICKY_CERT_PATH="$CERT_PATH"
 STICKY_MAP_SIZES="$MAP_SIZES"
+STICKY_VOACAP_SERVICE_HOST="$VOACAP_SERVICE_HOST"
 EOF
 }
 
@@ -786,6 +783,26 @@ determine_map_sizes() {
     fi
 }
 
+determine_voacap_service_host() {
+    # first precedence
+    if [ -n "$REQUESTED_VOACAP_SERVICE_HOST" ]; then
+        VOACAP_SERVICE_HOST=$REQUESTED_VOACAP_SERVICE_HOST
+
+    # second precedence
+    elif [ -n "$STICKY_VOACAP_SERVICE_HOST" ]; then
+        VOACAP_SERVICE_HOST=$STICKY_VOACAP_SERVICE_HOST
+
+    # third precedence
+    else
+        VOACAP_SERVICE_HOST=$DEFAULT_VOACAP_SERVICE_HOST
+
+    fi
+
+    if [ "$VOACAP_SERVICE_HOST" == "-" ]; then
+        VOACAP_SERVICE_HOST=$DEFAULT_VOACAP_SERVICE_HOST
+    fi
+}
+
 determine_tag() {
     get_current_image_tag
 
@@ -830,6 +847,7 @@ docker_compose_yml() {
     determine_https_cert
     determine_http_log
     determine_map_sizes
+    determine_voacap_service_host
 
     determine_tag || return $?
     IMAGE=$IMAGE_BASE:$TAG
@@ -854,7 +872,7 @@ services:
     environment:
       HOST_HOSTNAME: $HOSTNAME
       PSKR_UID: 1001
-      VOACAP_SERVICE_HOST: $DEFAULT_VOACAP_SERVICE_HOST
+      VOACAP_SERVICE_HOST: $VOACAP_SERVICE_HOST
       $MAP_SIZES_MAPPING
     networks:
       - ohb
