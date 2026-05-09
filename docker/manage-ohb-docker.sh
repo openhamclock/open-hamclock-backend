@@ -43,11 +43,20 @@ DEFAULT_CERT_PATH=-
 DEFAULT_EXTERNAL_HTTP_LOG=false
 # the following env is the lighttpd env file
 DEFAULT_ENV_FILE="$STARTED_FROM/.env"
+DEFAULT_MAP_SIZES=all
 
 # the following env is for sticky settings
 STICKY_ENV_FILE=$DOCKER_PROJECT.env
 REQUEST_DOCKER_PULL=false
 RETVAL=0
+
+SUPPORTED_MAP_SIZES=(
+    all
+    1600x960
+    3200x1920
+    2400x1440
+    800x480
+)
 
 main() {
     get_sticky_vars
@@ -118,7 +127,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":p:s:c:t:e:l:" opt; do
+    while getopts ":c:e:l:p:r:s:t:" opt; do
         case $opt in
             c)
                 REQUESTED_CERT_PATH="$OPTARG"
@@ -130,6 +139,14 @@ get_compose_opts() {
                 REQUESTED_EXTERNAL_HTTP_LOG="$OPTARG"
                 if [[ "$REQUESTED_EXTERNAL_HTTP_LOG" != "true" && "$REQUESTED_EXTERNAL_HTTP_LOG" != "false" ]]; then
                     echo "ERROR: -$opt option must be <true|false>"
+                    exit 1
+                fi
+                ;;
+            r)
+                REQUESTED_MAP_SIZES="${OPTARG,,}"
+                if [[ ! " ${SUPPORTED_MAP_SIZES[*]} " =~ " ${REQUESTED_MAP_SIZES} " ]]; then
+                    echo "ERROR: -$opt option must be one of:"
+                    printf '    %s\n' "${SUPPORTED_MAP_SIZES[@]}"
                     exit 1
                 fi
                 ;;
@@ -172,16 +189,19 @@ $THIS <COMMAND> [options]:
             do a fresh install and optionally provide the version
             -p: set the HTTP port
             -t: set image tag
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     upgrade [-p <port>] [-t <tag>]
             upgrade ohb; defaults to current git tag if there is one. Otherwise you can provide one.
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     full-reset [-p <port>] [-t <tag>]: 
             clear out all data and start fresh
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     reset:
             resets the OHB container to new but does not reset the persistent storage
@@ -193,6 +213,7 @@ $THIS <COMMAND> [options]:
             start an existing, not-running OHB install; defaults to current git tag if there is one. Otherwise you can provide one.
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     down
             stop a running OHB install
@@ -211,6 +232,7 @@ $THIS <COMMAND> [options]:
             writes the docker compose file to STDOUT
             -p: set the HTTP port (defaults to current setting)
             -t: set image tag
+            -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
 
     upgrade-me:
             downloads the latest tagged version of itself and overwrites itself. Runs
@@ -236,6 +258,7 @@ STICKY_HTTPS_PORT="$HTTPS_PORT"
 STICKY_LIGHTTPD_ENV_FILE="$ENV_FILE"
 STICKY_EXTERNAL_HTTP_LOG="$ENABLE_EXTERNAL_HTTP_LOG"
 STICKY_CERT_PATH="$CERT_PATH"
+STICKY_MAP_SIZES="$MAP_SIZES"
 EOF
 }
 
@@ -739,6 +762,29 @@ determine_https_cert() {
     fi
 }
 
+determine_map_sizes() {
+
+    # first precedence
+    if [ -n "$REQUESTED_MAP_SIZES" ]; then
+        MAP_SIZES=$REQUESTED_MAP_SIZES
+
+    # second precedence
+    elif [ -n "$STICKY_MAP_SIZES" ]; then
+        MAP_SIZES=$STICKY_MAP_SIZES
+
+    # third precedence
+    else
+        MAP_SIZES=$DEFAULT_MAP_SIZES
+
+    fi
+
+    if [ "$MAP_SIZES" == all ]; then
+        unset MAP_SIZES_MAPPING
+    else
+        MAP_SIZES_MAPPING="MAP_SIZES: $MAP_SIZES"
+    fi
+}
+
 determine_tag() {
     get_current_image_tag
 
@@ -782,6 +828,7 @@ docker_compose_yml() {
     determine_https_port
     determine_https_cert
     determine_http_log
+    determine_map_sizes
 
     determine_tag || return $?
     IMAGE=$IMAGE_BASE:$TAG
@@ -806,6 +853,7 @@ services:
     environment:
       HOST_HOSTNAME: $HOSTNAME
       PSKR_UID: 1001
+      $MAP_SIZES_MAPPING
     networks:
       - ohb
     ports:

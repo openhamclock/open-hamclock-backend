@@ -35,6 +35,13 @@ echo "Syncing the initial, static directory structure ..."
 mkdir -p /opt/hamclock-backend/htdocs/ham
 cp -a /opt/hamclock-backend/ham/HamClock /opt/hamclock-backend/htdocs/ham
 
+if [ -n "$MAP_SIZES" ]; then
+    echo "Limit map sizes to support screen size: '$MAP_SIZES'"
+    cp \
+        /opt/hamclock-backend/scripts/"map_sizes-$MAP_SIZES.txt" \
+        /opt/hamclock-backend/scripts/map_sizes.txt
+fi
+
 echo Installing root folder ...
 # remove traces of old, obsolete dashboard
 find /opt/hamclock-backend/htdocs -maxdepth 1 -type f -exec rm -f "{}" +
