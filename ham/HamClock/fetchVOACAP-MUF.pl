@@ -48,7 +48,8 @@ $SIG{PIPE} = 'IGNORE';
 # Configuration
 # —————————————————————————
 
-my $SERVICE_URL = 'http://'.$ENV{VOACAP_SERVICE_HOST} || 'http://voacap-service:8080';
+my $host        = $ENV{VOACAP_SERVICE_HOST} || 'voacap-service:8080';
+my $SERVICE_URL = "http://$host";
 my $ENDPOINT    = "$SERVICE_URL/fetchVOACAP-MUF.pl";
 
 # Hard upper bound on the proxied request. Matches voacap-service's
@@ -60,7 +61,20 @@ my $TIMEOUT = 300;
 # —————————————————————————
 
 my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
-my $url = $qs ? "$ENDPOINT?$qs" : $ENDPOINT;
+
+# Append latest SSN from local file to the upstream request.
+my $ssn = 0;
+if (open(my $fh, '<', '/opt/hamclock-backend/htdocs/ham/HamClock/ssn/ssn-31.txt')) {
+    my $last_line;
+    while (my $line = <$fh>) {
+        $last_line = $line if $line =~ /\S/;
+    }
+    close $fh;
+    my @parts = split ' ', $last_line if $last_line;
+    $ssn = $parts[3] if @parts >= 4;
+}
+$qs .= ($qs ? '&' : '') . "ssn=$ssn";
+my $url = "$ENDPOINT?$qs";
 
 binmode(STDOUT);
 
