@@ -39,7 +39,8 @@ my $TIMEOUT = 45;
 my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
 
 # Append latest SSN from local file to the upstream request.
-my $ssn = 0;
+# Use 71 as a nominal default if the file is missing or invalid.
+my $ssn = 71;
 if (open(my $fh, '<', '/opt/hamclock-backend/htdocs/ham/HamClock/ssn/ssn-31.txt')) {
     my $last_line;
     while (my $line = <$fh>) {
