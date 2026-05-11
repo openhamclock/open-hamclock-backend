@@ -18,7 +18,7 @@
 # at release time, this value is set to the tagged release
 OHB_MANAGER_VERSION=latest
 # tags to use
-VOACAP_SERVICE_TAG=1.14
+VOACAP_SERVICE_TAG=latest
 PSKR_MQTT_CACHE_TAG=1.12
 
 GITHUB_LATEST_RELEASE_URL="https://api.github.com/repos/komacke/open-hamclock-backend/releases/latest"
@@ -37,6 +37,7 @@ DEFAULT_TAG=$OHB_MANAGER_VERSION
 GIT_TAG=$(git describe --exact-match --tags 2>/dev/null)
 GIT_VERSION=$(git rev-parse --short HEAD 2>/dev/null)
 CONTAINER=${IMAGE_BASE##*/}
+VC_ALONE_CONTAINER=voacap-service-standalone
 DEFAULT_HTTP_PORT=:80
 DEFAULT_HTTPS_PORT=-
 DEFAULT_CERT_PATH=-
@@ -99,15 +100,53 @@ main() {
             remove_ohb
             ;;
         up)
+            if [ "$2" == voacap-service ]; then
+                REQUESTED_PROJECT=$2
+                SAVE_STICKY_VARS=false
+                shift
+            elif [ "$1" == ohb ]; then
+                REQUESTED_PROJECT=$2
+                shift
+            else
+                REQUESTED_PROJECT=ohb
+            fi
             shift && get_compose_opts "$@"
-            docker_compose_up
+            if [ $REQUESTED_PROJECT == voacap-service ]; then
+                docker_compose_up_voacap_service
+            else
+                docker_compose_up
+            fi
             ;;
         down)
-            docker_compose_down
+            if [ "$2" == voacap-service ]; then
+                REQUESTED_PROJECT=$2
+                SAVE_STICKY_VARS=false
+                shift
+            elif [ "$1" == ohb ]; then
+                REQUESTED_PROJECT=$2
+                shift
+            else
+                REQUESTED_PROJECT=ohb
+            fi
+            if [ $REQUESTED_PROJECT == voacap-service ]; then
+                docker_compose_down_voacap_service
+            else
+                docker_compose_down
+            fi
             ;;
         generate-docker-compose)
+            if [ "$2" == voacap-service ]; then
+                REQUESTED_PROJECT=$2
+                SAVE_STICKY_VARS=false
+                shift
+            elif [ "$2" == ohb ]; then
+                REQUESTED_PROJECT=$2
+                shift
+            else
+                REQUESTED_PROJECT=ohb
+            fi
             shift && get_compose_opts "$@"
-            generate_docker_compose
+            generate_docker_compose $REQUESTED_PROJECT
             ;;
         add-env-file)
             shift && get_compose_opts "$@"
@@ -174,8 +213,13 @@ get_compose_opts() {
                 ;;
         esac
     done
+    shift $((OPTIND - 1))
+    if [ -n "$1" ]; then
+        echo "Command '$COMMAND': Invalid option(s): $@" >&2
+        exit 1
+    fi
 
-    SAVE_STICKY_VARS=true
+    [ -z "$SAVE_STICKY_VARS" ] && SAVE_STICKY_VARS=true
 }
 
 usage () {
@@ -191,7 +235,7 @@ $THIS <COMMAND> [options]:
             checkif OHB is installed and report versions
 
     install
-            do a fresh install and optionally provide the version
+            do a fresh install
 
     upgrade
             upgrade ohb; defaults to current git tag if there is one. Otherwise you can provide one.
@@ -205,11 +249,11 @@ $THIS <COMMAND> [options]:
     restart:
             restarts the OHB container. No file contents modified
 
-    up
-            start an existing, not-running OHB install; defaults to current git tag if there is one. Otherwise you can provide one.
+    up [ohb|voacap-service] (default: ohb)
+            start an existing
 
-    down
-            stop a running OHB install
+    down [ohb|voacap-service] (default: ohb)
+            stop a running install
 
     remove: 
             stop and remove the docker container, docker storage and docker image
@@ -221,7 +265,7 @@ $THIS <COMMAND> [options]:
             to take effect. See the restart command. See .env.example for more info.
             -e: .env file location
 
-    generate-docker-compose
+    generate-docker-compose [ohb|voacap-service] (default: ohb)
             writes the docker compose file to STDOUT
 
     upgrade-me:
@@ -230,10 +274,12 @@ $THIS <COMMAND> [options]:
             overwriting itself.
 
 The following arguments come after the command:
-            -p: set the HTTP port (defaults to current setting)
-            -t: set image tag
+            -p: <port>
+                ohb: set the HTTP port (default: 80 or to current setting)
+                voacap-service: set the voacap-service port (default: 8080)
+            -t: <image tag>
             -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
-            -v: set voacap-service server host:port
+            -v: set voacap-service server host:port in ohb
 
 EOF
 }
@@ -482,6 +528,22 @@ docker_compose_up() {
     return $RETVAL
 }
 
+docker_compose_up_voacap_service() {
+    is_docker_installed >/dev/null || return $?
+
+    echo "Upping voacap-service ..."
+
+    export DOCKER_CLIENT_TIMEOUT=120
+    export COMPOSE_HTTP_TIMEOUT=120
+    IFS= DOCKER_COMPOSE_YML=$( docker_compose_yml_tmpl_voacap_service )
+    docker compose -f <(echo "$DOCKER_COMPOSE_YML") create
+    RETVAL=$?
+    [ $RETVAL -ne 0 ] && return $RETVAL
+    docker compose -f <(echo "$DOCKER_COMPOSE_YML") up -d
+    RETVAL=$?
+    return $RETVAL
+}
+
 docker_compose_down() {
     docker_compose_yml && docker compose -f <(echo "$DOCKER_COMPOSE_YML") down -v
     RETVAL=$?
@@ -502,6 +564,13 @@ docker_compose_down() {
     return $RETVAL
 }
 
+docker_compose_down_voacap_service() {
+    IFS= DOCKER_COMPOSE_YML=$( docker_compose_yml_tmpl_voacap_service )
+    docker compose -f <(echo "$DOCKER_COMPOSE_YML") down -v
+    RETVAL=$?
+    return $RETVAL
+}
+
 docker_compose_reset() {
     get_current_http_port
     get_current_https_port
@@ -515,7 +584,13 @@ docker_compose_restart() {
 }
 
 generate_docker_compose() {
-    docker_compose_yml && echo "$DOCKER_COMPOSE_YML"
+    local SERVICE=$1
+    if [ $SERVICE == ohb ]; then
+        docker_compose_yml $SERVICE && echo "$DOCKER_COMPOSE_YML"
+    elif [ $SERVICE == voacap-service ]; then
+        IFS= DOCKER_COMPOSE_YML=$( docker_compose_yml_tmpl_voacap_service )
+        echo "$DOCKER_COMPOSE_YML"
+    fi
 }
 
 remove_ohb() {
@@ -920,21 +995,8 @@ services:
     restart: unless-stopped
     environment:
       LOG_LEVEL: INFO
-      # SSN_MODE: latest or average (default: latest)
-      # VOACAP_SSN_MODE: average
     networks:
       - ohb
-    volumes:
-      # Mount the OHB SSN directory read-only so the container can read
-      # ssn-31.txt that is updated by your existing OHB cron jobs on the host.
-      # The path inside the container matches VOACAP_SSN_FILE default so no
-      # extra env var is needed.
-      - type: volume
-        source: ohb-htdocs
-        target: /opt/hamclock-backend/htdocs/ham/HamClock/ssn
-        volume:
-          subpath: ham/HamClock/ssn
-        read_only: true
     shm_size: "2gb"    # /dev/shm for fast VOACAP temp files
     mem_limit: "4gb"
     cpus: "4.0"
@@ -945,9 +1007,6 @@ services:
       options:
         max-size: "10m"
         max-file: "2"
-    depends_on:
-      web:
-        condition: service_healthy
 
 networks:
   ohb:
@@ -964,6 +1023,40 @@ networks:
 volumes:
   ohb-htdocs:
     external: true
+EOF
+}
+
+docker_compose_yml_tmpl_voacap_service() {
+    [ -z "$REQUESTED_TAG" ] && REQUESTED_TAG=$VOACAP_SERVICE_TAG
+    [ -z "$REQUESTED_HTTP_PORT" ] && REQUESTED_HTTP_PORT=8080
+
+    cat<<EOF
+name: $VC_ALONE_CONTAINER
+services:
+  voacap-service:
+    image: komacke/voacap-service:$REQUESTED_TAG
+    container_name: $VC_ALONE_CONTAINER
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: INFO
+    ports:
+      - $REQUESTED_HTTP_PORT:8080
+    shm_size: "2gb"    # /dev/shm for fast VOACAP temp files
+    mem_limit: "4gb"
+    tmpfs:
+      - /run:size=8m
+      - /tmp:size=32m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 EOF
 }
 
