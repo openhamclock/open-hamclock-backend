@@ -129,10 +129,10 @@ probe() {
     local path="$1"
     local url="${BASE}/${path}"
     local start_ns end_ns code=0 bytes=0 elapsed_ms=0
-    
+
     # Use %s if %N is not supported (e.g. non-GNU date)
     start_ns=$(date +%s%N 2>/dev/null || date +%s)
-    
+
     # Capture curl output to a variable first to ensure we get clean data
     local resp
     resp=$(curl -sS -o /dev/null --max-time "$TIMEOUT" \
@@ -141,7 +141,7 @@ probe() {
     # Strictly take only the first two space-separated words
     code=$(echo "$resp" | awk '{print $1}' | tr -dc '0-9' | sed 's/^0*//; s/^$/0/')
     bytes=$(echo "$resp" | awk '{print $2}' | tr -dc '0-9' | sed 's/^0*//; s/^$/0/')
-    
+
     end_ns=$(date +%s%N 2>/dev/null || date +%s)
 
     # Calculate elapsed time; handle cases where %N is literal or math fails
