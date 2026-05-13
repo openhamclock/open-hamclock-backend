@@ -16,9 +16,23 @@
 #  https://github.com/komacke/open-hamclock-backend/tree/main
 #
 #  Fetches live activator spots from POTA, SOTA (via Parks'n'Peaks),
-#  and WWFF (via cqgma.org), deduplicates, resolves grid/lat/lng from
-#  cached reference CSVs, and writes onta.txt for HamClock consumption.
+#  and WWFF (via the OHB central mirror by default), deduplicates,
+#  resolves grid/lat/lng from cached reference CSVs, and writes
+#  onta.txt for HamClock consumption.
 #
+#  WWFF NOTE: Per request from Mario, DL4MFM (https://www.cqgma.org),
+#  the GMA WWFF API is rate limited to 1 req/min and 1440 req/day per
+#  client. OHB no longer polls cqgma.org from every installation.
+#  Instead, the OHB central host runs fetch_wwff_cache.pl once per
+#  minute and serves the result to all OHB clients (central and
+#  self-install) via $WWFF_URL below.
+#
+#  To override (e.g. on the central host itself, or for testing),
+#  set the OHB_WWFF_URL environment variable. Accepts http(s)://,
+#  file://, or a bare filesystem path.
+#
+#  *** Please do NOT set OHB_WWFF_URL to https://www.cqgma.org/... ***
+#  *** on a self-install. That defeats the purpose of the mirror. ***
 ##
 #  Copyright (C) 2026 Open HamClock Backend (OHB) Contributors
 #
@@ -44,12 +58,15 @@ use JSON qw(decode_json);
 use Time::Local;
 use Text::CSV_XS;
 use File::Copy qw(move);
-use File::Basename;
-use File::Spec;
 
 my $POTA_URL = 'https://api.pota.app/spot';
 my $SOTA_URL = 'https://parksnpeaks.org/api/ALL';
-my $WWFF_URL = 'https://www.cqgma.org/api/spots/wwff/';
+
+# WWFF source: defaults to the OHB central mirror. Override via env if needed.
+# *** Update this default URL to point at your project's actual mirror host ***
+my $WWFF_URL = $ENV{OHB_WWFF_URL}
+    // 'https://ohb.hamclock.app/ham/HamClock/ONTA/wwff_spots.json';
+
 my $OUT      = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta.txt';
 my $TMP      = "$OUT.tmp";
 
@@ -74,6 +91,24 @@ sub org_from_ref {
     return 'WWFF' if defined($ref) && $ref =~ /^[A-Z]{1,4}FF-/i;
     return 'SOTA' if defined($ref) && $ref =~ m{/};     # e.g. W7O/NC-051
     return 'POTA';
+}
+
+# ---------------------------------------------------------------------------
+# Sanitize a string field from upstream JSON before it enters the output
+# line. Upstream APIs occasionally return callsigns/modes/refs containing
+# embedded newlines, tabs, commas, or stray whitespace (e.g. Parks'n'Peaks
+# has returned "TF3EK\n/P" as actCallsign), which corrupts the CSV-style
+# onta.txt file. Strips control chars, collapses internal whitespace,
+# removes commas, and trims edges. Returns '' for undef input.
+# ---------------------------------------------------------------------------
+sub clean_field {
+    my ($v) = @_;
+    return '' unless defined $v;
+    $v =~ s/[\x00-\x1F\x7F]+/ /g;   # drop control chars (incl. \n, \r, \t)
+    $v =~ s/,+/ /g;                  # commas would break the CSV
+    $v =~ s/\s+/ /g;                 # collapse runs of whitespace
+    $v =~ s/^\s+|\s+$//g;            # trim
+    return $v;
 }
 
 # ---------------------------------------------------------------------------
@@ -130,14 +165,47 @@ sub load_lookup {
     return %park;
 }
 
+# ---------------------------------------------------------------------------
+# Fetch a resource that may be HTTP(S), file://, or a bare local path.
+# Returns the body string on success, undef on failure.
+# ---------------------------------------------------------------------------
+sub fetch_source {
+    my ($url, $ua, $label) = @_;
+
+    # Local file path or file:// URL: read directly, no HTTP traffic
+    if ($url =~ m{^file://(.+)$} || $url =~ m{^(/.+)$}) {
+        my $path = $1;
+        unless (-f $path) {
+            warn "$label local file not found: $path\n";
+            return undef;
+        }
+        open my $fh, '<', $path or do {
+            warn "$label cannot read $path: $!\n";
+            return undef;
+        };
+        local $/;
+        my $body = <$fh>;
+        close $fh;
+        return $body;
+    }
+
+    # HTTP(S)
+    my $resp = $ua->get($url);
+    unless ($resp->is_success) {
+        warn "$label fetch failed: " . $resp->status_line . "\n";
+        return undef;
+    }
+    return $resp->decoded_content;
+}
+
 foreach my $file (keys %csv_generators) {
     unless (-e $file) {
         my $script = $csv_generators{$file};
         print "Missing $file. Running $script...\n";
-        
+
         # Execute the specific script
         system("perl $script");
-        
+
         # Verify the script actually created the file
         if ($? != 0 || !-e $file) {
             print "Error: Failed to generate $file using $script (Exit code: $?). Continuing.\n";
@@ -154,7 +222,7 @@ my %park_lookup = (%sota_lookup, %wwff_lookup, %pota_lookup);
 
 my $ua = LWP::UserAgent->new(
     timeout => 10,
-    agent   => 'HamClock-Backend/1.0',
+    agent   => 'OHB/1.1 (+https://github.com/komacke/open-hamclock-backend)',
 );
 
 my $now = time();
@@ -180,20 +248,20 @@ sub resolve_location {
 # Fields: activator, frequency (kHz), mode, reference, spotTime (ISO8601 UTC)
 # ---------------------------------------------------------------------------
 {
-    my $resp = $ua->get($POTA_URL);
-    if ($resp->is_success) {
-        my $spots = eval { decode_json($resp->decoded_content) };
+    my $body = fetch_source($POTA_URL, $ua, 'POTA');
+    if (defined $body) {
+        my $spots = eval { decode_json($body) };
         if ($@) {
             warn "POTA JSON parse failed: $@\n";
         } elsif (ref $spots eq 'ARRAY') {
             for my $s (@$spots) {
                 next unless ref $s eq 'HASH';
 
-                my $call = $s->{activator} // next;
+                my $call = clean_field($s->{activator}); next unless length $call;
                 next if length($call) > $MAX_CALL;
                 my $freq = $s->{frequency} // next;   # kHz
-                my $mode = $s->{mode}      // '';
-                my $park = $s->{reference} // '';
+                my $mode = clean_field($s->{mode});
+                my $park = clean_field($s->{reference});
                 my $time = $s->{spotTime}  // next;
 
                 my ($Y,$m,$d,$H,$M,$S) =
@@ -231,8 +299,6 @@ sub resolve_location {
                 }
             }
         }
-    } else {
-        warn "POTA fetch failed: " . $resp->status_line . "\n";
     }
 }
 
@@ -242,9 +308,9 @@ sub resolve_location {
 #         actTime ("YYYY-MM-DD HH:MM:SS" UTC)
 # ---------------------------------------------------------------------------
 {
-    my $resp = $ua->get($SOTA_URL);
-    if ($resp->is_success) {
-        my $spots = eval { decode_json($resp->decoded_content) };
+    my $body = fetch_source($SOTA_URL, $ua, 'SOTA');
+    if (defined $body) {
+        my $spots = eval { decode_json($body) };
         if ($@) {
             warn "Parks'n'Peaks JSON parse failed: $@\n";
         } elsif (ref $spots eq 'ARRAY') {
@@ -254,12 +320,12 @@ sub resolve_location {
                 my $cls = uc($s->{actClass} // '');
                 next unless $cls eq 'SOTA';
 
-                my $call = $s->{actCallsign} // next;
+                my $call = clean_field($s->{actCallsign}); next unless length $call;
                 next if length($call) > $MAX_CALL;
                 my $freq = $s->{actFreq}     // next;   # MHz
-                my $mode = $s->{actMode}     // '';
+                my $mode = clean_field($s->{actMode});
                 my $time = $s->{actTime}     // next;
-                my $park = $s->{actSiteID}   // '';
+                my $park = clean_field($s->{actSiteID});
 
                 # Parse "YYYY-MM-DD HH:MM:SS"
                 my ($Y,$m,$d,$H,$M,$S) =
@@ -294,21 +360,23 @@ sub resolve_location {
                 }
             }
         }
-    } else {
-        warn "SOTA fetch failed: " . $resp->status_line . "\n";
     }
 }
 
 # ---------------------------------------------------------------------------
-# Source 3: WWFF via cqgma.org  (https://www.cqgma.org/api/spots/wwff/)
+# Source 3: WWFF — via OHB central mirror by default (set via $WWFF_URL).
+#
+# The mirror serves the raw cqgma.org JSON body unchanged, so the parsing
+# below is identical to a direct GMA fetch.
+#
 # Fields: ACTIVATOR, QRG (MHz), MODE, REF, LAT, LON, DATE ("YYYYMMDD"),
 #         TIME ("HHMM" UTC)
 # Location is embedded in each spot — no cache lookup needed.
 # ---------------------------------------------------------------------------
 {
-    my $resp = $ua->get($WWFF_URL);
-    if ($resp->is_success) {
-        my $data = eval { decode_json($resp->decoded_content) };
+    my $body = fetch_source($WWFF_URL, $ua, 'WWFF');
+    if (defined $body) {
+        my $data = eval { decode_json($body) };
         if ($@) {
             warn "WWFF JSON parse failed: $@\n";
         } else {
@@ -316,15 +384,15 @@ sub resolve_location {
         for my $s (@$spots) {
             next unless ref $s eq 'HASH';
 
-            my $call = uc($s->{ACTIVATOR} // '');
-            $call =~ s/^\s+|\s+$//g;
+            my $call = uc(clean_field($s->{ACTIVATOR}));
             next unless length $call;
             next if length($call) > $MAX_CALL;
 
             my $freq = $s->{QRG}  // next;   # kHz
-            my $mode = uc($s->{MODE} // '');
+            my $mode = uc(clean_field($s->{MODE}));
+            next unless length $mode;         # skip spots with no mode
 
-            my $park = $s->{REF}  // next;
+            my $park = clean_field($s->{REF}); next unless length $park;
             my $lat  = $s->{LAT}  // next;
             my $lon  = $s->{LON}  // next;
             my $date = $s->{DATE} // next;   # YYYYMMDD
@@ -378,8 +446,6 @@ sub resolve_location {
             }
         }
         } # end JSON parse else
-    } else {
-        warn "WWFF fetch failed: " . $resp->status_line . "\n";
     }
 }
 
@@ -411,11 +477,8 @@ print "--- Processing Complete ---\n";
 print "POTA records: $counts{pota}\n";
 print "SOTA records: $counts{sota}\n";
 print "WWFF records: $counts{wwff}\n";
-print "Total unique spots written to $TMP: " . scalar(@out) . "\n";
+print "WWFF source : $WWFF_URL\n";
 
 move $TMP, $OUT or die "move failed $TMP -> $OUT: $!\n";
 
-# run split for ESP v3 support
-my $dir = dirname(__FILE__);
-my $other_script = File::Spec->catfile($dir, "split_onta.pl");
-system($^X, $other_script);
+print "Total unique spots written to $OUT: " . scalar(@out) . "\n";
