@@ -879,7 +879,7 @@ determine_alpha_install() {
 
     fi
 
-    if [ "$ALPHA_INSTALL" == true ]; then
+    if [ -n "$ALPHA_INSTALL" ]; then
         ALPHA_INSTALL_MAPPING="ALPHA_INSTALL: $ALPHA_INSTALL"
     fi
 }
