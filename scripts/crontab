@@ -57,7 +57,6 @@ LANG=C
 
 0 1 * * *      $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_solarflux-history.sh
 0 1 * * *      $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_ssn_history.pl
-15 3 * * 0     $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_pota_parks_cache.sh
 
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/web15rss_fetch.py
 
@@ -83,28 +82,28 @@ LANG=C
 #   cqgma.org directly.
 #
 #   How OHB complies:
-#     * The OHB CENTRAL HOST runs fetch_wwff_cache.pl once per minute and
-#       publishes the result at /ham/cache/wwff_spots.json.
-#     * gen_onta.pl on EVERY host (central + self-install) reads WWFF
-#       data from the central mirror, NOT from cqgma.org directly.
-#     * Override the source via the OHB_WWFF_URL environment variable
-#       if needed (e.g. file:// on the central host itself).
+#     * The OHB runs fetch_wwff_cache.pl once per minute and
+#       publishes the result at /ham/HamClock/ONTA/wwff_spots.json.
+#     * When ALPHA_INSTALL is set to 'true', OHB gets the json
+#       from cqgma.org directly.
+#     * When ALPHA_INSTALL is set to a hostname, OHB gets the json
+#       from http://$ALPHA_INSTALL/ham/HamClock/ONTA/wwff_spots.json.
+#     * When ALPHA_INSTALL is set to a full URL, OHB gets the json
+#       from that URL.
+#     * When ALPHA_INSTALL is unset, it defaults to http://ohb.hamclock.app/ham/HamClock/ONTA/wwff_spots.json.
 #
-#   *** Self-install operators: leave the fetch_wwff_cache.pl line     ***
-#   *** commented out. It is for the central mirror host only.         ***
+#
+#   *** Self-install operators: Do not set ALPHA_INSTALL to true. ***
+#  It is for the central mirror host only.         ***
+# --- the ALPHA_INSTALL= prefix can also be set:
+#* * * * *     $SCRIPTS/cron-wrapper.sh ALPHA_INSTALL=some_hostname $SCRIPTS/fetch_wwff_cache.pl        ---
 # ============================================================================
+* * * * *      $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_wwff_cache.pl
+1-59/2 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_onta.pl
 
-# --- CENTRAL HOST ONLY: fetch WWFF spots from GMA once per minute. ---
-# --- Self-install operators: leave this line commented out.        ---
-#* * * * *      $SCRIPTS/fetch_wwff_cache.pl >> $BASE/logs/fetch_wwff_cache.log 2>&1
-
-# --- CENTRAL HOST ONLY: tell gen_onta.pl to read the mirror locally ---
-# --- (avoids a self-hit over HTTP). Self-installs: leave commented. ---
-# --- If you uncomment fetch_wwff_cache.pl above, also uncomment     ---
-# --- the OHB_WWFF_URL= prefix on the gen_onta.pl line below.        ---
 0 3 * * 1      $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_wwff_cache.pl
 0 4 * * 1,4    $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_sota_cache.pl
-1-59/2 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_onta.pl
+15 3 * * 0     $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_pota_parks_cache.sh
 
 1-56/5 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_drap.sh
 

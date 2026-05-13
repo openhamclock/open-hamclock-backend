@@ -12,7 +12,8 @@
 #  Open HamClock Backend (OHB)
 #  fetch_wwff_cache.pl -- Central WWFF spot mirror fetcher
 #
-#  *** RUN ONLY ON THE CENTRAL OHB HOST ***
+#           *** RUNS ON ALL OHB HOSTS ***
+#      Behavior determined by ALPHA_INSTALL environment variable
 #
 #  Fetches live WWFF spots from cqgma.org once per minute and writes them
 #  to a local JSON file that all OHB installations (central + self-install)
@@ -23,7 +24,7 @@
 #  the service free and stable, OHB now uses a single shared mirror
 #  instead of letting every installation poll GMA directly.
 #
-#  Self-install operators: DO NOT enable this cron entry. Your gen_onta.pl
+#  Self-install operators: DO NOT set ALPHA_INSTALL=true. Your gen_onta.pl
 #  will read from the central mirror automatically.
 #
 #  Part of the OHB project:
@@ -54,7 +55,29 @@ use File::Copy qw(move);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 
-my $WWFF_URL = 'https://www.cqgma.org/api/spots/wwff/';
+my $GMA_SOURCE = 'https://www.cqgma.org/api/spots/wwff/';
+
+# If a mirror fetch fails, the script checks the local cache age. If it exceeds 
+# this threshold (in seconds), a fallback fetch to the GMA source is attempted.
+my $STALE_THRESHOLD = 3600;
+
+my $alpha = $ENV{ALPHA_INSTALL} // '';
+my $WWFF_URL;
+
+if ($alpha eq 'true') {
+    # This is the central mirror, fetch from the source
+    $WWFF_URL = $GMA_SOURCE;
+} elsif ($alpha =~ /^http/) {
+    # Full URL provided
+    $WWFF_URL = $alpha;
+} elsif ($alpha ne '') {
+    # Hostname provided, build the well-known path
+    $WWFF_URL = "http://$alpha/ham/HamClock/ONTA/wwff_spots.json";
+} else {
+    # Fallback default
+    $WWFF_URL = 'http://ohb.hamclock.app/ham/HamClock/ONTA/wwff_spots.json';
+}
+
 my $OUT      = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
 my $TMP      = "$OUT.tmp";
 
@@ -66,13 +89,31 @@ unless (-d $dir) {
 
 my $ua = LWP::UserAgent->new(
     timeout => 15,
-    agent   => 'OHB-WWFF-Cache/1.0 (+https://github.com/komacke/open-hamclock-backend; central mirror per DL4MFM request)',
+    agent   => 'OHB-WWFF-Cache/1.0 (+https://github.com/komacke/open-hamclock-backend; mirror fetcher)',
 );
 
 my $resp = $ua->get($WWFF_URL);
 
+if (!$resp->is_success && $WWFF_URL ne $GMA_SOURCE) {
+    # If primary fetch from a mirror fails, check staleness.
+    # If the local file hasn't been updated in over an hour, allow one fallback attempt to GMA.
+    my $mtime = (stat($OUT))[9] // 0;
+    my $age   = time() - $mtime;
+
+    if ($age > $STALE_THRESHOLD) {
+        warn "Mirror $WWFF_URL failed (" . $resp->status_line . ") and cache is stale (${age}s). Falling back to GMA ($GMA_SOURCE).\n";
+        my $fallback_resp = $ua->get($GMA_SOURCE);
+        if ($fallback_resp->is_success) {
+            $resp = $fallback_resp;
+            $WWFF_URL = $GMA_SOURCE;
+        } else {
+            warn "Fallback to GMA also failed: " . $fallback_resp->status_line . "\n";
+        }
+    }
+}
+
 unless ($resp->is_success) {
-    warn "GMA WWFF fetch failed: " . $resp->status_line . "\n";
+    warn "WWFF fetch failed from $WWFF_URL: " . $resp->status_line . "\n";
     # Leave the existing cache file in place so consumers keep getting
     # the last-known-good data rather than an empty response.
     exit 1;
@@ -82,7 +123,7 @@ my $body = $resp->decoded_content;
 
 # Basic sanity: must be non-empty and look like JSON
 unless (defined($body) && length($body) > 0 && $body =~ /^\s*[\{\[]/) {
-    warn "GMA WWFF response does not look like JSON; keeping previous cache.\n";
+    warn "WWFF response from $WWFF_URL does not look like JSON; keeping previous cache.\n";
     exit 1;
 }
 
@@ -94,4 +135,4 @@ move($TMP, $OUT) or die "move failed $TMP -> $OUT: $!\n";
 
 # Optional: log size for monitoring
 my $bytes = -s $OUT;
-print "WWFF cache updated: $bytes bytes\n";
+print "WWFF cache updated from $WWFF_URL: $bytes bytes\n";
