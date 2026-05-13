@@ -46,6 +46,7 @@ DEFAULT_EXTERNAL_HTTP_LOG=false
 DEFAULT_ENV_FILE="$STARTED_FROM/.env"
 DEFAULT_MAP_SIZES=all
 DEFAULT_VOACAP_SERVICE_HOST=voacap-service:8080
+DEFAULT_ALPHA_INSTALL=false
 
 # the following env is for sticky settings
 STICKY_ENV_FILE=$DOCKER_PROJECT.env
@@ -167,8 +168,11 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":c:e:l:p:r:s:t:v:" opt; do
+    while getopts ":a:c:e:l:p:r:s:t:v:" opt; do
         case $opt in
+            a)
+                REQUESTED_ALPHA_INSTALL=true
+                ;;
             c)
                 REQUESTED_CERT_PATH="$OPTARG"
                 ;;
@@ -303,6 +307,7 @@ STICKY_EXTERNAL_HTTP_LOG="$ENABLE_EXTERNAL_HTTP_LOG"
 STICKY_CERT_PATH="$CERT_PATH"
 STICKY_MAP_SIZES="$MAP_SIZES"
 STICKY_VOACAP_SERVICE_HOST="$VOACAP_SERVICE_HOST"
+STICK_ALPHA_INSTALL="$ALPHA_INSTALL"
 EOF
 }
 
@@ -858,6 +863,27 @@ determine_map_sizes() {
     fi
 }
 
+determine_alpha_install() {
+
+    # first precedence
+    if [ -n "$REQUESTED_ALPHA_INSTALL" ]; then
+        ALPHA_INSTALL=$REQUESTED_ALPHA_INSTALL
+
+    # second precedence
+    elif [ -n "$STICKY_ALPHA_INSTALL" ]; then
+        ALPHA_INSTALL=$STICKY_ALPHA_INSTALL
+
+    # third precedence
+    else
+        ALPHA_INSTALL=$DEFAULT_ALPHA_INSTALL
+
+    fi
+
+    if [ "$ALPHA_INSTALL" == true ]; then
+        ALPHA_INSTALL_MAPPING="ALPHA_INSTALL: $ALPHA_INSTALL"
+    fi
+}
+
 determine_voacap_service_host() {
     # first precedence
     if [ -n "$REQUESTED_VOACAP_SERVICE_HOST" ]; then
@@ -923,6 +949,7 @@ docker_compose_yml() {
     determine_http_log
     determine_map_sizes
     determine_voacap_service_host
+    determine_alpha_install
 
     determine_tag || return $?
     IMAGE=$IMAGE_BASE:$TAG
@@ -949,6 +976,7 @@ services:
       PSKR_UID: 1001
       VOACAP_SERVICE_HOST: $VOACAP_SERVICE_HOST
       $MAP_SIZES_MAPPING
+      $ALPHA_INSTALL_MAPPING
     networks:
       - ohb
     ports:
