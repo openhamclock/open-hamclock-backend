@@ -94,9 +94,9 @@ LANG=C
 #
 #
 #   *** Self-install operators: Do not set ALPHA_INSTALL to true. ***
-#  It is for the central mirror host only.         ***
-# --- the ALPHA_INSTALL= prefix can also be set:
-#* * * * *     $SCRIPTS/cron-wrapper.sh ALPHA_INSTALL=some_hostname $SCRIPTS/fetch_wwff_cache.pl        ---
+#   *** It is for the central mirror host only.         ***
+#   the ALPHA_INSTALL= prefix can also be set:
+#     $SCRIPTS/cron-wrapper.sh ALPHA_INSTALL=ohb.hamclock.app $SCRIPTS/fetch_wwff_cache.pl
 # ============================================================================
 * * * * *      $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_wwff_cache.pl
 1-59/2 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_onta.pl
