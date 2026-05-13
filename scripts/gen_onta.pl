@@ -15,21 +15,18 @@
 #  Part of the OHB project:
 #  https://github.com/komacke/open-hamclock-backend/tree/main
 #
-#  Fetches live activator spots from POTA, SOTA (via Parks'n'Peaks),
-#  and WWFF (via the OHB central mirror by default), deduplicates,
-#  resolves grid/lat/lng from cached reference CSVs, and writes
-#  onta.txt for HamClock consumption.
+#  Aggregates spots from POTA, SOTA, and WWFF. This script deduplicates
+#  activations, resolves location data from cached reference CSVs, and
+#  produces the onta.txt file consumed by HamClock.
 #
 #  WWFF NOTE: Per request from Mario, DL4MFM (https://www.cqgma.org),
 #  the GMA WWFF API is rate limited to 1 req/min and 1440 req/day per
-#  client. OHB no longer polls cqgma.org from every installation.
+#  client. OHB has always been configured to run 30 req/hr or 720 reg/day.
+#
+#  OHB no longer polls cqgma.org from every installation.
 #  Instead, the OHB central host runs fetch_wwff_cache.pl once per
 #  minute and serves the result to all OHB clients (central and
-#  self-install) via $WWFF_URL below.
-#
-#  To override (e.g. on the central host itself, or for testing),
-#  set the OHB_WWFF_URL environment variable. Accepts http(s)://,
-#  file://, or a bare filesystem path.
+#  self-install).
 #
 #  *** Please do NOT set OHB_WWFF_URL to https://www.cqgma.org/... ***
 #  *** on a self-install. That defeats the purpose of the mirror. ***
@@ -62,10 +59,8 @@ use File::Copy qw(move);
 my $POTA_URL = 'https://api.pota.app/spot';
 my $SOTA_URL = 'https://parksnpeaks.org/api/ALL';
 
-# WWFF source: defaults to the OHB central mirror. Override via env if needed.
-# *** Update this default URL to point at your project's actual mirror host ***
-my $WWFF_URL = $ENV{OHB_WWFF_URL}
-    // 'https://ohb.hamclock.app/ham/HamClock/ONTA/wwff_spots.json';
+# WWFF source: Managed locally by fetch_wwff_cache.pl.
+my $WWFF_URL = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
 
 my $OUT      = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta.txt';
 my $TMP      = "$OUT.tmp";
@@ -364,11 +359,8 @@ sub resolve_location {
 }
 
 # ---------------------------------------------------------------------------
-# Source 3: WWFF — via OHB central mirror by default (set via $WWFF_URL).
-#
-# The mirror serves the raw cqgma.org JSON body unchanged, so the parsing
-# below is identical to a direct GMA fetch.
-#
+# Source 3: WWFF — Read from the local cache file populated by
+# fetch_wwff_cache.pl.
 # Fields: ACTIVATOR, QRG (MHz), MODE, REF, LAT, LON, DATE ("YYYYMMDD"),
 #         TIME ("HHMM" UTC)
 # Location is embedded in each spot — no cache lookup needed.
