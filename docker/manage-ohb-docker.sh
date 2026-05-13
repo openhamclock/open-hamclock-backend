@@ -444,6 +444,10 @@ is_ohb_installed() {
         if [ "$STICKY_CERT_PATH" != "-" ]; then
             echo "  HTTPS cert path:       '$STICKY_CERT_PATH'"
         fi
+        echo "  External log:          '$STICKY_EXTERNAL_HTTP_LOG'"
+        echo "  Map sizes:             '$STICKY_MAP_SIZES'"
+        echo "  voacap-service:        '$STICKY_VOACAP_SERVICE_HOST'"
+        echo "  Alpha install:         '$STICKY_ALPHA_INSTALL'"
     fi
 
     if ! is_container_running; then
