@@ -94,6 +94,24 @@ sub org_from_ref {
 }
 
 # ---------------------------------------------------------------------------
+# Sanitize a string field from upstream JSON before it enters the output
+# line. Upstream APIs occasionally return callsigns/modes/refs containing
+# embedded newlines, tabs, commas, or stray whitespace (e.g. Parks'n'Peaks
+# has returned "TF3EK\n/P" as actCallsign), which corrupts the CSV-style
+# onta.txt file. Strips control chars, collapses internal whitespace,
+# removes commas, and trims edges. Returns '' for undef input.
+# ---------------------------------------------------------------------------
+sub clean_field {
+    my ($v) = @_;
+    return '' unless defined $v;
+    $v =~ s/[\x00-\x1F\x7F]+/ /g;   # drop control chars (incl. \n, \r, \t)
+    $v =~ s/,+/ /g;                  # commas would break the CSV
+    $v =~ s/\s+/ /g;                 # collapse runs of whitespace
+    $v =~ s/^\s+|\s+$//g;            # trim
+    return $v;
+}
+
+# ---------------------------------------------------------------------------
 # Load a reference lookup CSV into a hash keyed by reference string.
 # Expects columns: reference, latitude, longitude, grid
 # ---------------------------------------------------------------------------
@@ -239,11 +257,11 @@ sub resolve_location {
             for my $s (@$spots) {
                 next unless ref $s eq 'HASH';
 
-                my $call = $s->{activator} // next;
+                my $call = clean_field($s->{activator}); next unless length $call;
                 next if length($call) > $MAX_CALL;
                 my $freq = $s->{frequency} // next;   # kHz
-                my $mode = $s->{mode}      // '';
-                my $park = $s->{reference} // '';
+                my $mode = clean_field($s->{mode});
+                my $park = clean_field($s->{reference});
                 my $time = $s->{spotTime}  // next;
 
                 my ($Y,$m,$d,$H,$M,$S) =
@@ -302,12 +320,12 @@ sub resolve_location {
                 my $cls = uc($s->{actClass} // '');
                 next unless $cls eq 'SOTA';
 
-                my $call = $s->{actCallsign} // next;
+                my $call = clean_field($s->{actCallsign}); next unless length $call;
                 next if length($call) > $MAX_CALL;
                 my $freq = $s->{actFreq}     // next;   # MHz
-                my $mode = $s->{actMode}     // '';
+                my $mode = clean_field($s->{actMode});
                 my $time = $s->{actTime}     // next;
-                my $park = $s->{actSiteID}   // '';
+                my $park = clean_field($s->{actSiteID});
 
                 # Parse "YYYY-MM-DD HH:MM:SS"
                 my ($Y,$m,$d,$H,$M,$S) =
@@ -366,16 +384,15 @@ sub resolve_location {
         for my $s (@$spots) {
             next unless ref $s eq 'HASH';
 
-            my $call = uc($s->{ACTIVATOR} // '');
-            $call =~ s/^\s+|\s+$//g;
+            my $call = uc(clean_field($s->{ACTIVATOR}));
             next unless length $call;
             next if length($call) > $MAX_CALL;
 
             my $freq = $s->{QRG}  // next;   # kHz
-            my $mode = uc($s->{MODE} // '');
+            my $mode = uc(clean_field($s->{MODE}));
             next unless length $mode;         # skip spots with no mode
 
-            my $park = $s->{REF}  // next;
+            my $park = clean_field($s->{REF}); next unless length $park;
             my $lat  = $s->{LAT}  // next;
             my $lon  = $s->{LON}  // next;
             my $date = $s->{DATE} // next;   # YYYYMMDD
@@ -461,6 +478,7 @@ print "POTA records: $counts{pota}\n";
 print "SOTA records: $counts{sota}\n";
 print "WWFF records: $counts{wwff}\n";
 print "WWFF source : $WWFF_URL\n";
-print "Total unique spots written to $TMP: " . scalar(@out) . "\n";
 
 move $TMP, $OUT or die "move failed $TMP -> $OUT: $!\n";
+
+print "Total unique spots written to $OUT: " . scalar(@out) . "\n";
