@@ -168,10 +168,10 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":ac:e:l:p:r:s:t:v:" opt; do
+    while getopts ":a:c:e:l:p:r:s:t:v:" opt; do
         case $opt in
             a)
-                REQUESTED_ALPHA_INSTALL=true
+                REQUESTED_ALPHA_INSTALL="$OPTARG"
                 ;;
             c)
                 REQUESTED_CERT_PATH="$OPTARG"
