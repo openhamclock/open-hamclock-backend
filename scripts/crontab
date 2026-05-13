@@ -72,7 +72,36 @@ LANG=C
 2,17,32,47 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_aurora.py
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_noaaswx.sh
 
+# ============================================================================
 # POTA, SOTA, WWFF
+# ----------------------------------------------------------------------------
+# WWFF compliance note (Mario, DL4MFM / cqgma.org):
+#
+#   The GMA WWFF spot API is rate limited to 1 request/minute and 1440
+#   requests/day per client. Mario has asked software authors to cache
+#   spot data centrally rather than letting every installation poll
+#   cqgma.org directly.
+#
+#   How OHB complies:
+#     * The OHB CENTRAL HOST runs fetch_wwff_cache.pl once per minute and
+#       publishes the result at /ham/cache/wwff_spots.json.
+#     * gen_onta.pl on EVERY host (central + self-install) reads WWFF
+#       data from the central mirror, NOT from cqgma.org directly.
+#     * Override the source via the OHB_WWFF_URL environment variable
+#       if needed (e.g. file:// on the central host itself).
+#
+#   *** Self-install operators: leave the fetch_wwff_cache.pl line     ***
+#   *** commented out. It is for the central mirror host only.         ***
+# ============================================================================
+
+# --- CENTRAL HOST ONLY: fetch WWFF spots from GMA once per minute. ---
+# --- Self-install operators: leave this line commented out.        ---
+#* * * * *      $SCRIPTS/fetch_wwff_cache.pl >> $BASE/logs/fetch_wwff_cache.log 2>&1
+
+# --- CENTRAL HOST ONLY: tell gen_onta.pl to read the mirror locally ---
+# --- (avoids a self-hit over HTTP). Self-installs: leave commented. ---
+# --- If you uncomment fetch_wwff_cache.pl above, also uncomment     ---
+# --- the OHB_WWFF_URL= prefix on the gen_onta.pl line below.        ---
 0 3 * * 1      $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_wwff_cache.pl
 0 4 * * 1,4    $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_sota_cache.pl
 1-59/2 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_onta.pl
