@@ -168,7 +168,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":a:c:e:l:p:r:s:t:v:" opt; do
+    while getopts ":ac:e:l:p:r:s:t:v:" opt; do
         case $opt in
             a)
                 REQUESTED_ALPHA_INSTALL=true
