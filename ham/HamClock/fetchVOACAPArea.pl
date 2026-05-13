@@ -88,7 +88,9 @@ my $ua = Mojo::UserAgent->new
     ->request_timeout($TIMEOUT)
     ->max_redirects(0);
 
-my $tx = $ua->build_tx(GET => $url);
+#my $tx = $ua->build_tx(GET => $url);
+my $original_ua = $ENV{HTTP_USER_AGENT} // '';
+my $tx = $ua->build_tx(GET => $url, {'User-Agent' => $original_ua});
 
 # Stream upstream body to stdout chunk-by-chunk. Each syswrite reveals
 # whether the downstream client is still there.
