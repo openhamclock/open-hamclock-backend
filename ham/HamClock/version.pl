@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 # Copyright (C) 2026 Open HamClock Backend (OHB) Contributors
 #
@@ -21,8 +21,45 @@ use CGI;
 
 my $q = CGI->new;
 my $cache_dir = "/opt/hamclock-backend/cache";
+my $GIT_VERSION_FILE = '/opt/hamclock-backend/git.version';
 
-# 1. Parse User-Agent
+my @params = $q->param;
+
+# 1. Validate parameter count
+if (scalar @params > 1) {
+    print $q->header(-type => 'text/plain', -status => '400 Bad Request');
+    print "ERROR: Multiple parameters are not allowed.\n";
+    exit;
+}
+
+# 2. Handle specific version requests for the OHB backend
+if ($q->param('open-hamclock-backend')) {
+    if (-f $GIT_VERSION_FILE) {
+        if (open(my $fh, '<', $GIT_VERSION_FILE)) {
+            local $/; # Slurp mode
+            my $content = <$fh>;
+            close($fh);
+            print $q->header('text/plain');
+            print $content;
+        } else {
+            print $q->header(-type => 'text/plain', -status => '500 Internal Server Error');
+            print "ERROR: Could not read $GIT_VERSION_FILE: $!\n";
+        }
+    } else {
+        print $q->header(-type => 'text/plain', -status => '404 Not Found');
+        print "ERROR: Version file not found.\n";
+    }
+    exit;
+}
+
+# 3. Handle 'hamclock' parameter or invalid single parameters
+if (scalar @params == 1 && !$q->param('hamclock')) {
+    print $q->header(-type => 'text/plain', -status => '400 Bad Request');
+    print "ERROR: Invalid parameter.\n";
+    exit;
+}
+
+# 4. Default functionality: Parse User-Agent and proceed
 my $ua_string = $q->user_agent() || "";
 
 # Check for legacy ESPHamClock clients first
@@ -96,3 +133,4 @@ sub version_cmp {
     }
     return 0;
 }
+exit;
