@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 # Copyright (C) 2026 Open HamClock Backend (OHB) Contributors
 #
@@ -21,8 +21,55 @@ use CGI;
 
 my $q = CGI->new;
 my $cache_dir = "/opt/hamclock-backend/cache";
+my $GIT_VERSION_FILE = '/opt/hamclock-backend/git.version';
 
-# 1. Parse User-Agent
+# 1. Validate parameter count and identify flags (case-insensitive)
+my @params = $q->param;
+
+# If query string has no '=' (e.g. ?hamclock), CGI.pm treats it as keywords
+if (scalar @params == 1 && $params[0] eq 'keywords') {
+    @params = $q->keywords;
+}
+
+@params = grep { $_ ne '' } @params;
+my $has_ohb = grep { /^open-hamclock-backend$/ } @params;
+my $has_hc  = grep { /^hamclock$/ } @params;
+
+# 1. Validate parameter count
+if (scalar @params > 1) {
+    print $q->header(-type => 'text/plain', -status => '400 Bad Request');
+    print "ERROR: Multiple parameters are not allowed.\n";
+    exit;
+}
+
+# 2. Handle specific version requests for the OHB backend
+if ($has_ohb) {
+    if (-f $GIT_VERSION_FILE) {
+        if (open(my $fh, '<', $GIT_VERSION_FILE)) {
+            local $/; # Slurp mode
+            my $content = <$fh>;
+            close($fh);
+            print $q->header('text/plain');
+            print $content;
+        } else {
+            print $q->header(-type => 'text/plain', -status => '500 Internal Server Error');
+            print "ERROR: Could not read $GIT_VERSION_FILE: $!\n";
+        }
+    } else {
+        print $q->header(-type => 'text/plain', -status => '404 Not Found');
+        print "ERROR: Version file not found.\n";
+    }
+    exit;
+}
+
+# 3. Block unrecognized single parameters
+if (scalar @params == 1 && !$has_hc && !$has_ohb) {
+    print $q->header(-type => 'text/plain', -status => '400 Bad Request');
+    print "ERROR: Invalid parameter: $params[0]\n";
+    exit;
+}
+
+# 4. Default functionality: Parse User-Agent and proceed
 my $ua_string = $q->user_agent() || "";
 
 # Check for legacy ESPHamClock clients first
@@ -96,3 +143,4 @@ sub version_cmp {
     }
     return 0;
 }
+exit;
