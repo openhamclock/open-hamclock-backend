@@ -98,7 +98,7 @@ LANG=C
 #   the ALPHA_INSTALL= prefix can also be set:
 #     $SCRIPTS/cron-wrapper.sh ALPHA_INSTALL=ohb.hamclock.app $SCRIPTS/fetch_wwff_cache.pl
 # ============================================================================
-*/30 * * * *      $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_wwff_cache.pl
+*/2 * * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_wwff_cache.pl
 1-59/2 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_onta.pl
 
 0 3 * * 1      $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_wwff_cache.pl
