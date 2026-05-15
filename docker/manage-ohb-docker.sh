@@ -47,6 +47,7 @@ DEFAULT_ENV_FILE="$STARTED_FROM/.env"
 DEFAULT_MAP_SIZES=all
 DEFAULT_VOACAP_SERVICE_HOST=voacap-service:8080
 DEFAULT_ALPHA_INSTALL="ohb.hamclock.app"
+DEFAULT_HOST_HOSTNAME=$HOSTNAME
 
 # the following env is for sticky settings
 STICKY_ENV_FILE=$DOCKER_PROJECT.env
@@ -168,7 +169,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":a:c:e:l:p:r:s:t:v:" opt; do
+    while getopts ":a:c:e:h:l:p:r:s:t:v:" opt; do
         case $opt in
             a)
                 REQUESTED_ALPHA_INSTALL="$OPTARG"
@@ -178,6 +179,9 @@ get_compose_opts() {
                 ;;
             e)
                 REQUESTED_ENV_FILE="$OPTARG"
+                ;;
+            h)
+                REQUESTED_HOST_HOSTNAME="$OPTARG"
                 ;;
             l)
                 REQUESTED_EXTERNAL_HTTP_LOG="$OPTARG"
@@ -308,6 +312,7 @@ STICKY_CERT_PATH="$CERT_PATH"
 STICKY_MAP_SIZES="$MAP_SIZES"
 STICKY_VOACAP_SERVICE_HOST="$VOACAP_SERVICE_HOST"
 STICKY_ALPHA_INSTALL="$ALPHA_INSTALL"
+STICKY_HOST_HOSTNAME=$HOST_HOSTNAME
 EOF
 }
 
@@ -448,6 +453,7 @@ is_ohb_installed() {
         echo "  Map sizes:             '$STICKY_MAP_SIZES'"
         echo "  voacap-service:        '$STICKY_VOACAP_SERVICE_HOST'"
         echo "  Alpha install:         '$STICKY_ALPHA_INSTALL'"
+        echo "  Service hostname:      '$STICKY_HOST_HOSTNAME'"
     fi
 
     if ! is_container_running; then
@@ -888,6 +894,24 @@ determine_alpha_install() {
     fi
 }
 
+determine_host_hostname() {
+
+    # first precedence
+    if [ -n "$REQUESTED_HOST_HOSTNAME" ]; then
+        HOST_HOSTNAME="$REQUESTED_HOST_HOSTNAME"
+
+    # second precedence
+    elif [ -n "$STICKY_HOST_HOSTNAME" ]; then
+        HOST_HOSTNAME="$STICKY_HOST_HOSTNAME"
+
+    # third precedence
+    else
+        HOST_HOSTNAME="$DEFAULT_HOST_HOSTNAME"
+
+    fi
+
+}
+
 determine_voacap_service_host() {
     # first precedence
     if [ -n "$REQUESTED_VOACAP_SERVICE_HOST" ]; then
@@ -954,6 +978,7 @@ docker_compose_yml() {
     determine_map_sizes
     determine_voacap_service_host
     determine_alpha_install
+    determine_host_hostname
 
     determine_tag || return $?
     IMAGE=$IMAGE_BASE:$TAG
@@ -976,7 +1001,7 @@ services:
     image: $IMAGE
     restart: unless-stopped
     environment:
-      HOST_HOSTNAME: $HOSTNAME
+      HOST_HOSTNAME: $HOST_HOSTNAME
       PSKR_UID: 1001
       VOACAP_SERVICE_HOST: $VOACAP_SERVICE_HOST
       $MAP_SIZES_MAPPING

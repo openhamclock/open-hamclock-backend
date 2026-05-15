@@ -74,6 +74,8 @@ VERSION=$(cat /opt/hamclock-backend/git.version 2>/dev/null | cut -b -12)
 VERSION="${VERSION:-unknown}" # Provide a default if git.version is missing or empty
 TZ_LABEL="UTC"          # display timezone label
 
+PUBLIC_IP=$(dig +short TXT o-o.myaddr.l.google.com @ns1.google.com | tr -d '"' || echo "unknown")
+
 # Named data product subdirectories to enumerate (order preserved in output).
 # RSS is intentionally omitted (probed dynamically). SDO has its own section.
 DATA_SUBDIRS=(
@@ -392,6 +394,8 @@ build_json() {
         printf '  "generated_utc": "%s",\n'      "$NOW"
         printf '  "callsign": "%s",\n'           "$CALLSIGN"
         printf '  "version": "%s",\n'            "$VERSION"
+        printf '  "hostname": "%s",\n'           "$HOST_HOSTNAME"
+        printf '  "public_ip": "%s",\n'          "$PUBLIC_IP"
         printf '  "summary": {\n'
         printf '    "data_product_files": %d,\n' "$DATA_COUNT"
         printf '    "sdo_files": %d,\n'          "$SDO_COUNT"
@@ -683,6 +687,7 @@ cat << HTML_HEAD
   <div class="header-left">
     <div class="callsign">${CALLSIGN}</div>
     <div class="subtitle">Data Product Status Board / ${VERSION}</div>
+    <div class="subtitle" style="text-transform: none;">${HOST_HOSTNAME} (${PUBLIC_IP})</div>
   </div>
   <div class="header-right">
     <div class="clock-label">Page generated</div>
