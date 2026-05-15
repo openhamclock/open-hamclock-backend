@@ -1,13 +1,6 @@
 #!/usr/bin/env perl
 # ============================================================
 #
-#  ██████╗ ██╗  ██╗██████╗
-# ██╔═══██╗██║  ██║██╔══██╗
-# ██║   ██║███████║██████╔╝
-# ██║   ██║██╔══██║██╔══██╗
-# ╚██████╔╝██║  ██║██████╔╝
-#  ╚═════╝ ╚═╝  ╚═╝╚═════╝
-#
 # Open HamClock Backend
 # fetchRBN.pl
 #
@@ -37,17 +30,16 @@ use JSON::PP;
 use Time::Local qw(timegm);
 
 # ---------------- Config ----------------
-
-my $DXSPIDER_HOST = '44.32.64.9';
-my $DXSPIDER_PORT = 9000;
+my $DXSPIDER_HOST  = '44.32.64.9';
+my $DXSPIDER_PORT  = 9000;
 my $DEFAULT_MAXAGE = 7200;
-my $TIMEOUT_SEC = 15;
+my $TIMEOUT_SEC    = 15;
 
 my $CTY_FILE = '/opt/hamclock-backend/htdocs/ham/HamClock/cty/cty_wt_mod-ll-dxcc.txt';
-
 # ----------------------------------------
 
 binmode STDOUT, ':encoding(ISO-8859-1)';
+
 
 sub csv_error {
     my ($status, $msg) = @_;
@@ -61,6 +53,7 @@ sub csv_error {
     exit 0;
 }
 
+
 # Convert ISO-8601 "2026-05-10T20:14:00" assumed UTC to epoch seconds.
 sub iso_to_epoch {
     my ($iso) = @_;
@@ -73,6 +66,7 @@ sub iso_to_epoch {
 
     return '';
 }
+
 
 # 6-char Maidenhead from lat/lon decimal degrees, east-positive.
 sub latlon_to_maiden6 {
@@ -111,13 +105,14 @@ sub latlon_to_maiden6 {
     );
 }
 
+
 # Load the cty file into a hash:
 # prefix/callsign => [lat, lon]
 #
 # Header treats the lon column as east-positive:
 # positive = east, negative = west.
-
 my %CTY;
+
 sub load_cty {
     my ($file) = @_;
 
@@ -133,7 +128,6 @@ sub load_cty {
         next unless @f >= 3;
 
         my ($pfx, $lat, $lon) = @f;
-
         next unless $lat =~ /^-?\d+(\.\d+)?$/ && $lon =~ /^-?\d+(\.\d+)?$/;
 
         $CTY{uc $pfx} = [ $lat + 0, $lon + 0 ];
@@ -143,9 +137,9 @@ sub load_cty {
     return 1;
 }
 
+
 # Longest-match prefix lookup:
 # try the full call, then shorten until a hit.
-
 sub call_to_grid {
     my ($call) = @_;
 
@@ -174,13 +168,12 @@ sub call_to_grid {
     return '';
 }
 
+
 load_cty($CTY_FILE);    # silent failure ok; grids will just be empty
 
-# --------- Parse CGI inputs ----------
 
-my @selectors = grep {
-    defined param($_) && length(param($_))
-} qw(ofcall bycall ofgrid bygrid);
+# --------- Parse CGI inputs ----------
+my @selectors = grep { defined param($_) && length(param($_)) } qw(ofcall bycall ofgrid bygrid);
 
 csv_error(400, "Missing required parameter: one of ofcall, bycall, ofgrid, bygrid")
     if @selectors == 0;
@@ -201,10 +194,19 @@ $maxage = int($maxage);
 
 my $field;
 
+# HamClock/OHB semantics:
+#   ofcall/ofgrid = station being spotted/transmitting = dx_call/dx_grid
+#   bycall/bygrid = receiving skimmer/spotter = spotter_call/spotter_grid
+#
+# The current DXSpider socket service uses reversed call selector names:
+#   field=bycall returns rows matching dx_call
+#   field=ofcall returns rows matching spotter_call
+#
+# Grid selectors use the explicit JSON field names and are not flipped.
 if ($sel_name eq 'ofcall') {
-    $field = 'ofcall';
-} elsif ($sel_name eq 'bycall') {
     $field = 'bycall';
+} elsif ($sel_name eq 'bycall') {
+    $field = 'ofcall';
 } elsif ($sel_name eq 'ofgrid') {
     $field = 'dx_grid';
 } elsif ($sel_name eq 'bygrid') {
@@ -223,8 +225,8 @@ if ($sel_name =~ /grid$/) {
 
 my $query_value = uc($sel_value);
 
-# --------- Send request, no mode = all modes ----------
 
+# --------- Send request, no mode = all modes ----------
 my $req = {
     field  => $field,
     data   => $query_value,
@@ -244,14 +246,12 @@ csv_error(
 ) unless $sock;
 
 $sock->autoflush(1);
-
 print $sock encode_json($req) . "\n";
 
 my $raw = '';
 
 eval {
     local $SIG{ALRM} = sub { die "timeout\n" };
-
     alarm $TIMEOUT_SEC;
 
     while (my $line = <$sock>) {
@@ -280,16 +280,17 @@ csv_error(
 
 my $results = $data->{results} || [];
 
+
 # Sort oldest first for stable output.
 my @sorted = sort {
     ($a->{spotted_at} // '') cmp ($b->{spotted_at} // '')
 } @$results;
 
+
 # --------- Emit CSV in OHB format ----------
 #
 # Columns:
 # epoch_time, ofgrid, ofcall, degrid, decall, mode, hz, snr
-
 print header(
     -type   => 'text/plain; charset=ISO-8859-1',
     -status => 200
@@ -302,15 +303,15 @@ for my $spot (@sorted) {
     my $ofcall = $spot->{dx_call} // '';
     my $decall = $spot->{spotter_call} // '';
 
-    # DX-end grid:
+    # DX/transmitter end.
     # Prefer DXSpider's dx_grid field.
     # Fall back to legacy/older grid field.
     # Then fall back to CTY lookup.
     my $ofgrid = $spot->{dx_grid} // $spot->{grid} // '';
     $ofgrid = call_to_grid($ofcall) if $ofgrid eq '';
 
-    # Spotter grid:
-    # Prefer DXSpider's new spotter_grid field.
+    # Spotter/receiver end.
+    # Prefer DXSpider's spotter_grid field.
     # Then fall back to CTY lookup.
     my $degrid = $spot->{spotter_grid} // '';
     $degrid = call_to_grid($decall) if $degrid eq '';
@@ -320,7 +321,7 @@ for my $spot (@sorted) {
     my $snr = $spot->{snr_db};
     $snr = '' unless defined $snr;
 
-    my $hz = '';
+    my $hz  = '';
     my $khz = $spot->{frequency_khz};
 
     if (defined $khz && $khz =~ /^-?\d+(\.\d+)?$/) {
