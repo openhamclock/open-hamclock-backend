@@ -9,6 +9,7 @@ anonip
 bc
 cron
 curl
+dnsutils
 ffmpeg
 ghostscript
 gmt
