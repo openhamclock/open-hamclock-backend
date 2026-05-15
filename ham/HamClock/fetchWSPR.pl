@@ -181,6 +181,7 @@ if (defined $cached_body) {
 
     $body = $response->decoded_content;
 
+    print STDERR $body;
     # Write cache (best-effort)
     # In other words, if the cache can't be written then we don't care
     if ($cache_ok && open(my $fh, '>', $cache_path)) {
@@ -197,14 +198,17 @@ if ($@ || !$decoded || !$decoded->{data}) {
 }
 
 # Decoded. Now, emit in HamClock wire format
+# HamClock expects frequency as integer Hz, not decimal MHz.
 foreach my $row (@{$decoded->{data}}) {
-    printf("%s,%s,%s,%s,%s,WSPR,%.6f,%d\n",
+    my $freq_hz = int(($row->{frequency} // 0) + 0);
+
+    printf("%s,%s,%s,%s,%s,WSPR,%d,%d\n",
         $row->{epoch}      // 0,
         uc($row->{tx_loc}  // ""),
         uc($row->{tx_sign} // ""),
         uc($row->{rx_loc}  // ""),
         uc($row->{rx_sign} // ""),
-        ($row->{frequency} // 0) / 1_000_000,  # Hz -> MHz
+        $freq_hz,
         $row->{snr}        // 0,
     );
 }
