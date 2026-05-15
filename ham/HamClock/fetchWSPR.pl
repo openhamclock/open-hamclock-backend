@@ -181,7 +181,6 @@ if (defined $cached_body) {
 
     $body = $response->decoded_content;
 
-    print STDERR $body;
     # Write cache (best-effort)
     # In other words, if the cache can't be written then we don't care
     if ($cache_ok && open(my $fh, '>', $cache_path)) {
