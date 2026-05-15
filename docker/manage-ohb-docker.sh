@@ -169,7 +169,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":a:c:e:l:p:r:s:t:v:" opt; do
+    while getopts ":a:c:e:h:l:p:r:s:t:v:" opt; do
         case $opt in
             a)
                 REQUESTED_ALPHA_INSTALL="$OPTARG"
@@ -179,6 +179,9 @@ get_compose_opts() {
                 ;;
             e)
                 REQUESTED_ENV_FILE="$OPTARG"
+                ;;
+            h)
+                REQUESTED_HOST_HOSTNAME="$OPTARG"
                 ;;
             l)
                 REQUESTED_EXTERNAL_HTTP_LOG="$OPTARG"
