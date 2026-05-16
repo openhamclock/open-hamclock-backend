@@ -118,5 +118,10 @@ LANG=C
 3,18,33,48 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_aurora_maps.sh
 0 2,8,14,20 * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_wx_mb_maps.sh
 
+# tropical cyclone
+# Fetch HamClock tropical cyclone data every six hours.
+# Writes to: /opt/hamclock-backend/htdocs/ham/HamClock/storms/storms.txt
+# The script creates the storms/ directory if missing.
+7 */6 * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_cyclones.py
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/probe_dynamic_endpoints.sh
 */5 * * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/generate_status_json.sh
