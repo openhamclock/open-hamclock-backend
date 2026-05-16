@@ -49,6 +49,7 @@ URLS=(
   "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
   "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle"
   "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle"
+  "https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=tle"
 )
 
 CATNR_IDS=(
@@ -58,6 +59,10 @@ CATNR_IDS=(
     98380   # HADES-SA (temp ID, launched 2026-03-30)
     67683   # KNACKSAT-2
     63235   # OTP-2 (Rogue Space)
+    20580   # HST / Hubble Space Telescope
+    25338   # NOAA-15 APT
+    28654   # NOAA-18 APT
+    33591   # NOAA-19 APT
 )
 
 # Satellites whose Celestrak name clashes or is absent — fetch by CATNR
@@ -139,4 +144,11 @@ if [[ -f "$MOONTLE_SCRIPT" ]]; then
     } || echo "WARNING: moontle.py failed — Moon TLE not added"
 else
     echo "WARNING: moontle.py not found at $MOONTLE_SCRIPT — Moon TLE not added"
+fi
+
+if ! grep -q '^1 25544U' "$TLEFILE"; then
+    echo "WARNING: raw TLE cache is missing ISS NORAD 25544; stations fetch may have failed"
+elif ! grep -qx 'ISS' "$ESATS_OUT"; then
+    echo "WARNING: raw TLE cache contains ISS NORAD 25544, but esats.txt is missing ISS"
+    echo "         filter_amsat_active.pl may be stale or alias matching failed"
 fi

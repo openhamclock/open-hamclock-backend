@@ -170,6 +170,11 @@ my %ALIAS = (
     # --- SilverSat ---
     'SILVERSAT'         => { tle => 'SILVERSAT',               out => 'SilverSat'  },
     'SILVERSAT_[SSDV]'  => { tle => 'SILVERSAT',               out => 'SilverSat'  },
+
+    'HST'     => { tle => 'HST',     out => 'HUBBLE' },
+    'NOAA-15' => { tle => 'NOAA 15', out => 'NOAA-15' },
+    'NOAA-18' => { tle => 'NOAA 18', out => 'NOAA-18' },
+    'NOAA-19' => { tle => 'NOAA 19', out => 'NOAA-19' },
 );
 
 # Build lookup: uppercased Celestrak TLE name => friendly output name
