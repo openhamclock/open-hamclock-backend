@@ -66,6 +66,7 @@ NODE_EXPORTER_URL="${HAMCLOCK_NODE_EXPORTER_URL:-http://node-exporter:9100/metri
 TIMEOUT="${HAMCLOCK_PROBE_TIMEOUT:-10}"
 QUIET=0
 MIN_BYTES_OK=1   # 200 + >=1 byte counts as ACTIVE
+UA="OHB-probe/1.0"
 
 usage() {
     sed -n '32,59p' "$0" | sed 's/^# \{0,1\}//'
@@ -135,7 +136,7 @@ probe() {
 
     # Capture curl output to a variable first to ensure we get clean data
     local resp
-    resp=$(curl -sS -o /dev/null --max-time "$TIMEOUT" \
+    resp=$(curl -A "$UA" -sS -o /dev/null --max-time "$TIMEOUT" \
                     -w '%{http_code} %{size_download}' \
                     "$url" 2>/dev/null || echo "000 0")
     # Strictly take only the first two space-separated words
@@ -221,7 +222,7 @@ first=1
     healthy=$(( active + idle ))
 
     # Fetch custom metrics from node-exporter
-    count_24h=$(curl -sS --max-time "$TIMEOUT" "$NODE_EXPORTER_URL" 2>/dev/null | grep "^count_24_hours" | awk '{print $2}')
+    count_24h=$(curl -A "$UA" -sS --max-time "$TIMEOUT" "$NODE_EXPORTER_URL" 2>/dev/null | grep "^count_24_hours" | awk '{print $2}')
     # Ensure count_24h is a valid integer
     if ! [[ "$count_24h" =~ ^[0-9]+$ ]]; then
         count_24h=0
