@@ -275,12 +275,16 @@ foreach my $ohb_base_url (@ohb_servers) {
         my $matched = 0;
         my $matched_tag = "";
         my @all_errors;
+        my @skip_reasons;
 
         foreach my $candidate (@candidates) {
             my $tag = $candidate->{tag_name};
             my ($gh_asset) = grep { $_->{name} eq $zip_filename } @{$candidate->{assets}};
             
-            next unless $gh_asset;
+            if (!$gh_asset) {
+                push @skip_reasons, "$tag: Asset $zip_filename not found in GitHub release assets";
+                next;
+            }
             
             my $github_zip_url = "https://github.com/$owner/$repo/releases/download/$tag/$zip_filename";
 
@@ -290,7 +294,9 @@ foreach my $ohb_base_url (@ohb_servers) {
             logger("  Trying GitHub release $tag: Downloading original $zip_filename...");
             my $gh_dl_resp = $ua->get($github_zip_url, ':content_file' => $local_gh_zip);
             if (!$gh_dl_resp->is_success) {
-                logger("  Warning: Failed to download GitHub ZIP for $tag: " . $gh_dl_resp->status_line);
+                my $status = $gh_dl_resp->status_line;
+                logger("  Warning: Failed to download GitHub ZIP for $tag: $status");
+                push @skip_reasons, "$tag: GitHub download failed ($status)";
                 next; # Try next candidate
             }
 
@@ -326,13 +332,26 @@ foreach my $ohb_base_url (@ohb_servers) {
 
         if (!$matched) {
             my $error_body = "The following discrepancies were found against all GitHub candidates for $zip_filename on $ohb_base_url:\n\n";
-            foreach my $entry (@all_errors) {
-                $error_body .= "Against $entry->{tag}:\n";
-                foreach my $err (@{$entry->{errors}}) {
-                    $error_body .= "  - $err\n";
+            
+            if (@all_errors) {
+                foreach my $entry (@all_errors) {
+                    $error_body .= "Against $entry->{tag}:\n";
+                    foreach my $err (@{$entry->{errors}}) {
+                        $error_body .= "  - $err\n";
+                    }
+                    $error_body .= "\n";
+                }
+            }
+
+            if (@skip_reasons) {
+                $error_body .= "Additionally, the following candidates were skipped and could not be verified:\n";
+                foreach my $reason (@skip_reasons) {
+                    $error_body .= "  - $reason\n";
                 }
                 $error_body .= "\n";
             }
+
+            $error_body .= "No successful comparisons were completed for this version.\n" if !@all_errors;
 
             logger("CRITICAL ERROR: Integrity mismatch for $zip_filename!");
             send_alert("OHB Integrity Failure: $zip_filename", $error_body);
