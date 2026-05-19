@@ -167,6 +167,15 @@ foreach my $item (
         }
         print "Successfully saved and verified $zip_path\n";
 
+        # Delete prior betas if this is a new beta
+        if ($item->{type} eq 'beta') {
+            foreach my $old_beta (glob("$cache_dir/ESPHamClock-V*b*.zip")) {
+                next if $old_beta eq $zip_path;
+                unlink $old_beta;
+                unlink "$old_beta.sha256";
+            }
+        }
+
         # Update wifi.cpp inside zip
         my $target_file = "ESPHamClock/wifi.cpp";
         system("unzip -q -o $zip_path $target_file -d $tmp_dir");
