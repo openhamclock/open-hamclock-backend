@@ -201,6 +201,7 @@ foreach my $ohb_base_url (@ohb_servers) {
     if ($stable_ver_served) {
         # Extract unique beta base versions from GitHub tags (e.g., 4.06 from v4.06b01)
         my %beta_bases;
+        logger("  Searching for active beta tracks on $ohb_base_url...");
         foreach my $r (@$gh_releases) {
             my $tag = $r->{tag_name};
             if ($tag =~ /b/i) {
@@ -223,8 +224,12 @@ foreach my $ohb_base_url (@ohb_servers) {
                     $beta_ver_served = $v_line;
                     last;
                 }
+            } elsif ($v_resp->code != 404) {
+                # Log unexpected errors (500s, timeouts, etc.) but ignore 404s during discovery
+                logger("  Warning: Error probing beta base $bv: " . $v_resp->status_line);
             }
         }
+        logger("  No active beta track detected on $ohb_base_url.") unless $beta_ver_served;
     }
 
     my @to_check;
