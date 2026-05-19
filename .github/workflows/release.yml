@@ -24,16 +24,23 @@ jobs:
           TAG="${{ github.event.inputs.tag_name }}"
           REF="${{ github.ref_name }}"
           MGR_NAME="manage-ohb-docker-$TAG.sh"
+          VERIFY_NAME="verify_firmware_integrity-$TAG.pl"
+
+          # create the distribution directory
+          mkdir dist
 
           # create a manager with version in the name and file
           sed "s/^\(OHB_MANAGER_VERSION=\).*$/\1$TAG/" ./docker/manage-ohb-docker.sh \
           > "./docker/$MGR_NAME"
 
+          # create the integrity utility with version injected
+          sed "s/\(my \$VERSION = \)\"[^\"]*\"/\1\"$TAG\"/" \
+          ./scripts/utility/verify_firmware_integrity.pl \
+          > "./dist/$VERIFY_NAME"
+
           # add version artifact
           echo "TAG=$TAG" > VERSION.txt
 
-          # create the tars and zips
-          mkdir dist
           tar -czf "dist/OHB-$TAG.tar.gz" --exclude=dist .
           zip -r "dist/OHB-$TAG.zip" . -x "dist/*"
 
@@ -44,6 +51,7 @@ jobs:
           # Grabs file from repo tree and uploads with a label
           gh release create ${{ github.event.inputs.tag_name }} \
             "./docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs" \
+            "./dist/verify_firmware_integrity-${{ github.event.inputs.tag_name }}.pl#Firmware Integrity Utility" \
             "dist/OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB Source Tarball" \
             "dist/OHB-${{ github.event.inputs.tag_name }}.zip#OHB Source Zip" \
             --title "OHB Release: ${{ github.event.inputs.tag_name }}" \

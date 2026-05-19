@@ -25,16 +25,19 @@ $| = 1;
 openlog('ohb-verify-fw', 'ndelay,pid', 'local0');
 
 # --- Configuration ---
+my $VERSION = "latest";
 my $alert_on_missing_default = 1; # Set to 1 to email on missing files, 0 to only email on integrity mismatch
 
 my $cmd_servers;
 my $cmd_to_addresses;
 my $cmd_alert_on_missing_val;
+my $cmd_upgrade;
 
 GetOptions(
     "s=s" => \$cmd_servers,          # Comma-separated list of server URLs
     "t=s" => \$cmd_to_addresses,     # Comma-separated list of email addresses
     "a:i" => \$cmd_alert_on_missing_val, # 0 or 1, overrides default
+    "u"   => \$cmd_upgrade,          # Self-upgrade flag
 ) or die "Error in command line arguments\n";
 
 my $servers_str = $cmd_servers // $ENV{'OHB_VERIFY_SERVERS'};
@@ -61,6 +64,38 @@ chomp($hostname);
 
 my $ua = LWP::UserAgent->new(timeout => 60);
 $ua->agent("OHB-External-Verifier/1.0");
+
+# --- Self Upgrade ---
+if ($cmd_upgrade) {
+    logger("Checking for script updates from komacke/open-hamclock-backend...");
+    my $api_url = "https://api.github.com/repos/komacke/open-hamclock-backend/releases/latest";
+    my $resp = $ua->get($api_url);
+    if ($resp->is_success) {
+        my $data = decode_json($resp->decoded_content);
+        my $latest_tag = $data->{tag_name};
+        my $clean_tag = $latest_tag;
+        $clean_tag =~ s/^v//i;
+
+        if (versioncmp($clean_tag, $VERSION) > 0) {
+            logger("New version $latest_tag available (current: $VERSION). Upgrading...");
+            # Fetch the script from the same relative path in the repository
+            my $raw_url = "https://raw.githubusercontent.com/komacke/open-hamclock-backend/$latest_tag/scripts/utility/verify_firmware_integrity.pl";
+            my $dl_resp = $ua->get($raw_url, ':content_file' => $0);
+            if ($dl_resp->is_success) {
+                logger("Upgrade successful. Script replaced at $0. Please restart.", 1);
+                exit 0;
+            } else {
+                logger("Error downloading upgrade: " . $dl_resp->status_line, 1);
+                exit 1;
+            }
+        } else {
+            logger("Script is up to date ($VERSION).");
+        }
+    } else {
+        logger("Error checking for updates: " . $resp->status_line, 1);
+    }
+    exit 0;
+}
 
 sub logger {
     my ($msg, $force) = @_;
@@ -441,6 +476,9 @@ Usage:
 
   # Check a specific server, send alerts to specific addresses, do not alert on missing files
   ./verify_firmware_integrity.pl -s "https://your-server-ip" -t "admin@example.com,ops@example.com" -a 0
+
+  # Check for script updates and upgrade if available
+  ./verify_firmware_integrity.pl -u
 
   # Override environment variables with command-line options
   OHB_VERIFY_SERVERS="https://another-server" OHB_VERIFY_EMAILS="backup@example.com" ./verify_firmware_integrity.pl -s "https://your-server-ip"
