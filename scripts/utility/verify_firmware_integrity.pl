@@ -159,7 +159,7 @@ sub dispatch_final_report {
 sub get_tree_manifest {
     my ($base_dir) = @_;
     my %manifest;
-    
+
     find(sub {
         return unless -f $_;
         my $rel_path = $File::Find::name;
@@ -169,7 +169,7 @@ sub get_tree_manifest {
         $sha->addfile($_);
         $manifest{$rel_path} = $sha->hexdigest;
     }, $base_dir);
-    
+
     return \%manifest;
 }
 
@@ -177,7 +177,7 @@ sub get_tree_manifest {
 sub compare_manifests {
     my ($gh_m, $ohb_m) = @_;
     my @errors;
-    
+
     # Check that every file in GH exists and matches in OHB
     foreach my $file (keys %$gh_m) {
         if (!exists $ohb_m->{$file}) {
@@ -315,12 +315,12 @@ foreach my $ohb_base_url (@ohb_servers) {
         foreach my $candidate (@candidates) {
             my $tag = $candidate->{tag_name};
             my ($gh_asset) = grep { $_->{name} eq $zip_filename } @{$candidate->{assets}};
-            
+
             if (!$gh_asset) {
                 push @skip_reasons, "$tag: Asset $zip_filename not found in GitHub release assets";
                 next;
             }
-            
+
             my $github_zip_url = "https://github.com/$owner/$repo/releases/download/$tag/$zip_filename";
 
             my $gh_tmp_dir = tempdir(CLEANUP => 1);
@@ -337,7 +337,7 @@ foreach my $ohb_base_url (@ohb_servers) {
 
             # Extract both entirely for comparison
             my $gh_extract = "$gh_tmp_dir/extract";
-            my $ohb_extract = "$ohb_tmp_dir/extract";
+            my $oh_extract = "$ohb_tmp_dir/extract";
             mkdir $gh_extract; mkdir $ohb_extract;
 
             system("unzip -q $local_gh_zip -d $gh_extract");
