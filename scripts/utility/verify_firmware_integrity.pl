@@ -337,7 +337,7 @@ foreach my $ohb_base_url (@ohb_servers) {
 
             # Extract both entirely for comparison
             my $gh_extract = "$gh_tmp_dir/extract";
-            my $oh_extract = "$ohb_tmp_dir/extract";
+            my $ohb_extract = "$ohb_tmp_dir/extract";
             mkdir $gh_extract; mkdir $ohb_extract;
 
             system("unzip -q $local_gh_zip -d $gh_extract");
