@@ -47,6 +47,10 @@ my $to_list = $cmd_to_addresses // $ENV{'OHB_VERIFY_EMAILS'};
 
 my $alert_on_missing = defined $cmd_alert_on_missing_val ? $cmd_alert_on_missing_val : $alert_on_missing_default;
 
+# State for aggregated reporting
+my $aggregated_alert_body = "";
+my $has_integrity_failure = 0;
+
 # Upstream Source info
 # The hostname is used in the From: header of alert emails.
 my $owner         = "openhamclock";
@@ -76,22 +80,43 @@ sub logger {
 # Helper to send email alerts on integrity failure
 sub send_alert {
     my ($subject, $body) = @_;
+
+    # Accumulate alerts for the final report
+    $aggregated_alert_body .= "======================================================================\n";
+    $aggregated_alert_body .= "ALERT: $subject\n";
+    $aggregated_alert_body .= "======================================================================\n";
+    $aggregated_alert_body .= "$body\n\n";
+
+    # Mark if we encountered a critical integrity mismatch
+    $has_integrity_failure = 1 if $subject =~ /Integrity Failure/i;
+
+    logger("Queued alert for summary email: $subject");
+}
+
+# Internal helper to dispatch the final aggregated email
+sub dispatch_final_report {
+    return unless $aggregated_alert_body;
+
     if (!$to_list) {
-        logger("ALERT [No email configured]: $subject\n$body");
+        logger("CRITICAL: Alerts generated but no email configured (OHB_VERIFY_EMAILS or -t missing).", 1);
+        logger("AGGREGATED ALERTS:\n$aggregated_alert_body", 1);
         return;
     }
+
+    my $final_subject = $has_integrity_failure 
+        ? "CRITICAL: OHB Integrity Failure Report ($hostname)" 
+        : "OHB Integrity Alert Report ($hostname)";
 
     if (open(my $mail, "|-", "/usr/sbin/sendmail -t")) {
         print $mail "To: $to_list\n";
         print $mail "From: hc.fw.integrity\@$hostname\n";
-        print $mail "Subject: $subject\n";
+        print $mail "Subject: $final_subject\n";
         print $mail "\n";
-        print $mail $body;
+        print $mail $aggregated_alert_body;
         close($mail);
-        logger("Alert email sent to $to_list");
+        logger("Aggregated alert email sent to $to_list");
     } else {
-        logger("Error: Failed to execute sendmail: $!", 1);
-        logger("CRITICAL ALERT: $subject\n$body", 1);
+        logger("Error: Failed to execute sendmail: $!\n\nAGGREGATED ALERTS:\n$aggregated_alert_body", 1);
     }
 }
 
@@ -303,9 +328,7 @@ foreach my $ohb_base_url (@ohb_servers) {
 
             logger("CRITICAL ERROR: Integrity mismatch for $zip_filename!");
             send_alert("OHB Integrity Failure: $zip_filename", $error_body);
-            
-            # Exit with error so cron can capture failure
-            exit 1;
+            next; # Move to next version track
         }
     } else {
         logger("Error: Failed to download ZIP from OHB: " . $dl_resp->status_line);
@@ -361,7 +384,7 @@ foreach my $ohb_base_url (@ohb_servers) {
                     
                     logger("CRITICAL ERROR: $bin_err");
                     send_alert("OHB Integrity Failure: $bin_filename", $bin_err);
-                    exit 1;
+                    next; # Move to next version track
                 }
             } else {
                 logger("Warning: Failed to download binary $bin_filename from OHB: " . $dl_bin_resp->status_line);
@@ -377,8 +400,11 @@ foreach my $ohb_base_url (@ohb_servers) {
 logger("Integrity audit for $ohb_base_url complete.");
 }
 
+# Dispatch final aggregated report if any issues were found
+dispatch_final_report();
+
 logger("Integrity check complete.");
-exit 0;
+exit ($has_integrity_failure ? 1 : 0);
 
 __END__
 
