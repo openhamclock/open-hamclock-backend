@@ -78,9 +78,17 @@ if ($cmd_upgrade) {
 
         if (versioncmp($clean_tag, $VERSION) > 0) {
             logger("New version $latest_tag available (current: $VERSION). Upgrading...");
-            # Fetch the script from the same relative path in the repository
-            my $raw_url = "https://raw.githubusercontent.com/komacke/open-hamclock-backend/$latest_tag/scripts/utility/verify_firmware_integrity.pl";
-            my $dl_resp = $ua->get($raw_url, ':content_file' => $0);
+
+            # Find the versioned asset in the release metadata
+            my $asset_name = "verify_firmware_integrity-$latest_tag.pl";
+            my ($asset) = grep { $_->{name} eq $asset_name } @{$data->{assets}};
+
+            if (!$asset) {
+                logger("Error: Asset $asset_name not found in release $latest_tag assets.", 1);
+                exit 1;
+            }
+
+            my $dl_resp = $ua->get($asset->{browser_download_url}, ':content_file' => $0);
             if ($dl_resp->is_success) {
                 logger("Upgrade successful. Script replaced at $0. Please restart.", 1);
                 exit 0;
