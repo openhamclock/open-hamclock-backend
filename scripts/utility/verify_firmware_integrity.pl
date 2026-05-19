@@ -229,7 +229,10 @@ foreach my $ohb_base_url (@ohb_servers) {
                 logger("  Warning: Error probing beta base $bv: " . $v_resp->status_line);
             }
         }
-        logger("  No active beta track detected on $ohb_base_url.") unless $beta_ver_served;
+        if (!$beta_ver_served) {
+            logger("  No active beta track detected on $ohb_base_url.");
+            send_alert("OHB Missing Beta Track", "No active beta track was found on $ohb_base_url. Probed various beta candidate versions but the server did not return a valid beta version string.") if $alert_on_missing;
+        }
     }
 
     my @to_check;
