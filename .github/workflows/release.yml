@@ -1,6 +1,9 @@
 name: Release with manage-ohb-docker.sh asset
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
@@ -13,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Required to create releases
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -21,12 +24,12 @@ jobs:
       - name: Prepare assets
         run: |
           # Define asset names with the tag
-          TAG="${{ github.event.inputs.tag_name }}"
+          TAG="${{ inputs.tag_name || github.ref_name }}"
           REF="${{ github.ref_name }}"
           MGR_NAME="manage-ohb-docker-$TAG.sh"
           VERIFY_NAME="verify_firmware_integrity-$TAG.pl"
 
-          # create the distribution directory
+          # create the distribution directory and clean up any old ones
           mkdir dist
 
           # create a manager with version in the name and file
@@ -38,21 +41,30 @@ jobs:
           ./scripts/utility/verify_firmware_integrity.pl \
           > "./dist/$VERIFY_NAME"
 
+          # Verify Perl syntax after injection
+          perl -c "./dist/$VERIFY_NAME"
+
           # add version artifact
           echo "TAG=$TAG" > VERSION.txt
 
-          tar -czf "dist/OHB-$TAG.tar.gz" --exclude=dist .
-          zip -r "dist/OHB-$TAG.zip" . -x "dist/*"
+          # create the source bundles using git archive for a clean package
+          git archive --format=tar.gz --output="dist/OHB-$TAG.tar.gz" HEAD
+          git archive --format=zip --output="dist/OHB-$TAG.zip" HEAD
+
+          # Generate checksums for all assets
+          cd dist && sha256sum * > CHECKSUMS && cd ..
 
       - name: Create Release and Upload Asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          TAG="${{ inputs.tag_name || github.ref_name }}"
           # Grabs file from repo tree and uploads with a label
-          gh release create ${{ github.event.inputs.tag_name }} \
-            "./docker/manage-ohb-docker-${{ github.event.inputs.tag_name }}.sh#Manage OHB Docker Installs" \
-            "./dist/verify_firmware_integrity-${{ github.event.inputs.tag_name }}.pl#Firmware Integrity Utility" \
-            "dist/OHB-${{ github.event.inputs.tag_name }}.tar.gz#OHB Source Tarball" \
-            "dist/OHB-${{ github.event.inputs.tag_name }}.zip#OHB Source Zip" \
-            --title "OHB Release: ${{ github.event.inputs.tag_name }}" \
+          gh release create "$TAG" \
+            "./docker/manage-ohb-docker-$TAG.sh#Manage OHB Docker Installs" \
+            "./dist/verify_firmware_integrity-$TAG.pl#Firmware Integrity Utility" \
+            "dist/OHB-$TAG.tar.gz#OHB Source Tarball" \
+            "dist/OHB-$TAG.zip#OHB Source Zip" \
+            "dist/CHECKSUMS#Asset Checksums" \
+            --title "OHB Release: $TAG" \
             --generate-notes
