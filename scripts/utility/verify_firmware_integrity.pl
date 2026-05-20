@@ -289,7 +289,13 @@ foreach my $ohb_base_url (@ohb_servers) {
         logger("Checking $type release (version $srv_ver)...");
 
         # Set User-Agent for the request
-        $ua->agent($type eq '3.10' ? "ESP8266-http-Update" : "OHB-External-Verifier/1.0");
+        if ($type eq '3.10') {
+            $ua->agent("ESP8266-http-Update");
+        } elsif ($type eq 'beta') {
+            $ua->agent("HamClock-Verifier/$srv_ver");
+        } else {
+            $ua->agent("OHB-External-Verifier/1.0");
+        }
 
         my $zip_filename = "ESPHamClock-V$srv_ver.zip";
         my $ohb_zip_url  = "$ohb_base_url/ham/HamClock/$zip_filename";
@@ -400,6 +406,29 @@ foreach my $ohb_base_url (@ohb_servers) {
             send_alert("OHB Integrity Failure: $zip_filename", $error_body);
             next; # Move to next version track
         }
+
+        # 4. Additionally verify the generic ESPHamClock.zip served for this track/UA (except 3.10)
+        if ($type ne '3.10') {
+            my $generic_zip = "ESPHamClock.zip";
+            my $ohb_generic_url = "$ohb_base_url/ham/HamClock/$generic_zip";
+            logger("  Verifying generic asset $generic_zip matches $zip_filename...");
+            my $local_ohb_generic = "$ohb_tmp_dir/$generic_zip";
+            my $gen_resp = $ua->get($ohb_generic_url, ':content_file' => $local_ohb_generic);
+            if ($gen_resp->is_success) {
+                my $v_sha = Digest::SHA->new(256)->addfile($local_ohb_zip)->hexdigest;
+                my $g_sha = Digest::SHA->new(256)->addfile($local_ohb_generic)->hexdigest;
+
+                if ($v_sha eq $g_sha) {
+                    logger("    SUCCESS: Generic $generic_zip matches versioned $zip_filename.");
+                } else {
+                    my $msg = "Integrity mismatch: $generic_zip does not match $zip_filename on $ohb_base_url for track $type";
+                    logger("    CRITICAL ERROR: $msg");
+                    send_alert("OHB Generic File Mismatch", $msg);
+                }
+            } else {
+                logger("    Warning: Could not fetch generic $generic_zip: " . $gen_resp->status_line);
+            }
+        }
     } else {
         logger("Error: Failed to download ZIP from OHB: " . $dl_resp->status_line);
         send_alert("OHB Missing File: $zip_filename", "Failed to download $zip_filename from $ohb_base_url\nStatus: " . $dl_resp->status_line) if $alert_on_missing;
@@ -455,6 +484,26 @@ foreach my $ohb_base_url (@ohb_servers) {
                     logger("CRITICAL ERROR: $bin_err");
                     send_alert("OHB Integrity Failure: $bin_filename", $bin_err);
                     next; # Move to next version track
+                }
+
+                # Also verify the generic ESPHamClock.ino.bin for the 3.10 track
+                my $generic_bin = "ESPHamClock.ino.bin";
+                my $ohb_generic_bin_url = "$ohb_base_url/ham/HamClock/$generic_bin";
+                logger("  Verifying generic asset $generic_bin matches $bin_filename...");
+                my $local_ohb_generic_bin = "$tmp_bin_dir/$generic_bin";
+                my $gen_bin_resp = $ua->get($ohb_generic_bin_url, ':content_file' => $local_ohb_generic_bin);
+                if ($gen_bin_resp->is_success) {
+                    my $v_bin_sha = Digest::SHA->new(256)->addfile($local_ohb_bin)->hexdigest;
+                    my $g_bin_sha = Digest::SHA->new(256)->addfile($local_ohb_generic_bin)->hexdigest;
+                    if ($v_bin_sha eq $g_bin_sha) {
+                        logger("    SUCCESS: Generic $generic_bin matches versioned $bin_filename.");
+                    } else {
+                        my $msg = "Integrity mismatch: $generic_bin does not match $bin_filename on $ohb_base_url";
+                        logger("    CRITICAL ERROR: $msg");
+                        send_alert("OHB Generic Binary Mismatch", $msg);
+                    }
+                } else {
+                    logger("    Warning: Could not fetch generic $generic_bin: " . $gen_bin_resp->status_line);
                 }
             } else {
                 logger("Warning: Failed to download binary $bin_filename from OHB: " . $dl_bin_resp->status_line);
