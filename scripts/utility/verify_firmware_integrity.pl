@@ -218,7 +218,10 @@ sub send_alert {
 
 # Internal helper to dispatch the final aggregated email
 sub dispatch_final_report {
-    my $hash_file = "$cache_dir/.last_alert_hash";
+    # Create a unique hash file per server set to allow independent tracking
+    my $servers_identity = join(',', sort @ohb_servers);
+    my $ctx_hash = Digest::SHA->new(256)->add($servers_identity)->hexdigest;
+    my $hash_file = "$cache_dir/.last_alert_hash_" . substr($ctx_hash, 0, 12);
 
     if (!$aggregated_alert_body) {
         # If the run is clean, remove the alert state so a future failure is emailed
