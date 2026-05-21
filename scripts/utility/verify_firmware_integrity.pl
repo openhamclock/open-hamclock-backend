@@ -13,6 +13,7 @@ use LWP::UserAgent;
 use JSON::PP;
 use Digest::SHA;
 use File::Temp qw/ tempdir /;
+use FindBin;
 use File::Find;
 use Getopt::Long;
 use Sort::Versions;
@@ -49,6 +50,19 @@ my @ohb_servers = split(/\s*,\s*/, $servers_str);
 my $to_list = $cmd_to_addresses // $ENV{'OHB_VERIFY_EMAILS'};
 
 my $alert_on_missing = defined $cmd_alert_on_missing_val ? $cmd_alert_on_missing_val : $alert_on_missing_default;
+
+# --- Cache Initialization ---
+my $cache_dir = "$FindBin::Bin/cache";
+my $use_cache = 1;
+if (!-d $cache_dir) {
+    if (!mkdir($cache_dir, 0755)) {
+        logger("Warning: Could not create cache directory '$cache_dir': $!. Running without cache.");
+        $use_cache = 0;
+    }
+} elsif (!-w $cache_dir) {
+    logger("Warning: Cache directory '$cache_dir' is not writable. Running without cache.");
+    $use_cache = 0;
+}
 
 # State for aggregated reporting
 my $aggregated_alert_body = "";
@@ -126,6 +140,17 @@ sub download_with_retry {
     my ($url, $dest, $expected_sha, $log_prefix) = @_;
     my $max_attempts = 3;
     my $delay = 10;
+
+    # Check if file exists and matches SHA before attempting download
+    if (-f $dest && defined $expected_sha && $expected_sha ne "") {
+        my $actual_sha = eval {
+            my $sha = Digest::SHA->new(256);
+            $sha->addfile($dest);
+            $sha->hexdigest;
+        };
+        return (1, "") if (!$@ && defined $actual_sha && $actual_sha eq $expected_sha);
+    }
+
     my $last_error = "";
 
     for (my $attempt = 1; $attempt <= $max_attempts; $attempt++) {
@@ -150,6 +175,15 @@ sub download_with_retry {
                 if ($@) {
                     $last_error = "Hashing failed: $@";
                 } elsif ($actual_sha eq $expected_sha) {
+                    # Save the sha256sum file locally
+                    my $sha_local_path = "$dest.sha256";
+                    if (open(my $sfh, '>', $sha_local_path)) {
+                        my $filename = (split(/\//, $dest))[-1];
+                        print $sfh "$expected_sha  $filename\n";
+                        close($sfh);
+                        chmod 0644, $sha_local_path;
+                    }
+
                     return (1, ""); # Success
                 } else {
                     $last_error = "SHA256 mismatch: expected $expected_sha, got $actual_sha";
@@ -382,8 +416,8 @@ foreach my $ohb_base_url (@ohb_servers) {
                 }
 
                 my $github_zip_url = "https://github.com/$owner/$repo/releases/download/$tag/$zip_filename";
-                my $gh_tmp_dir = tempdir(CLEANUP => 1);
-                my $local_gh_zip = "$gh_tmp_dir/$zip_filename";
+                my $gh_tmp_dir = tempdir(CLEANUP => 1); # for extraction
+                my $local_gh_zip = $use_cache ? "$cache_dir/$tag-$zip_filename" : "$gh_tmp_dir/$zip_filename";
 
                 logger("$track_log   Comparing content against GitHub release $tag...");
                 my $expected_sha = ($gh_asset->{digest} // "") =~ s/^sha256://r;
