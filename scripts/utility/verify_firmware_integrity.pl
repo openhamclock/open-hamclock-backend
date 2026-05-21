@@ -218,12 +218,31 @@ sub send_alert {
 
 # Internal helper to dispatch the final aggregated email
 sub dispatch_final_report {
-    return unless $aggregated_alert_body;
+    my $hash_file = "$cache_dir/.last_alert_hash";
+
+    if (!$aggregated_alert_body) {
+        # If the run is clean, remove the alert state so a future failure is emailed
+        unlink $hash_file if $use_cache && -f $hash_file;
+        return;
+    }
 
     if (!$to_list) {
         logger("CRITICAL: Alerts generated but no email configured (OHB_VERIFY_EMAILS or -t missing).", 1);
         logger("AGGREGATED ALERTS:\n$aggregated_alert_body", 1);
         return;
+    }
+
+    # Deduplicate alerts by hashing the body content
+    my $current_hash = Digest::SHA->new(256)->add($aggregated_alert_body)->hexdigest;
+    if ($use_cache && -f $hash_file) {
+        if (open(my $hfh, '<', $hash_file)) {
+            my $last_hash = <$hfh>;
+            close($hfh);
+            if (defined $last_hash && (split(/\s+/, $last_hash))[0] eq $current_hash) {
+                logger("Alert content is unchanged since last report. Skipping email dispatch.");
+                return;
+            }
+        }
     }
 
     my $final_subject = $has_integrity_failure 
@@ -237,6 +256,14 @@ sub dispatch_final_report {
         print $mail "\n";
         print $mail $aggregated_alert_body;
         close($mail);
+
+        # Record this alert hash to avoid re-sending the same report next time
+        if ($use_cache) {
+            if (open(my $hfh, '>', $hash_file)) {
+                print $hfh "$current_hash\n";
+                close($hfh);
+            }
+        }
         logger("Aggregated alert email sent to $to_list");
     } else {
         logger("Error: Failed to execute sendmail: $!\n\nAGGREGATED ALERTS:\n$aggregated_alert_body", 1);
