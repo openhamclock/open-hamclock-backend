@@ -88,12 +88,13 @@ if ($cmd_upgrade) {
                 exit 1;
             }
 
-            my $dl_resp = $ua->get($asset->{browser_download_url}, ':content_file' => $0);
-            if ($dl_resp->is_success) {
+            my $expected_sha = ($asset->{digest} // "") =~ s/^sha256://r;
+            my ($success, $error) = download_with_retry($asset->{browser_download_url}, $0, $expected_sha, "Upgrade:");
+            if ($success) {
                 logger("Upgrade successful. Script replaced at $0. Please restart.", 1);
                 exit 0;
             } else {
-                logger("Error downloading upgrade: " . $dl_resp->status_line, 1);
+                logger("Error downloading upgrade: $error", 1);
                 exit 1;
             }
         } else {
@@ -118,6 +119,51 @@ sub logger {
     return if $to_list && ! -t STDOUT && !$force;
 
     print "[".scalar(gmtime)."] $msg\n";
+}
+
+# Helper to download a file with retries and SHA256 verification
+sub download_with_retry {
+    my ($url, $dest, $expected_sha, $log_prefix) = @_;
+    my $max_attempts = 3;
+    my $delay = 10;
+    my $last_error = "";
+
+    for (my $attempt = 1; $attempt <= $max_attempts; $attempt++) {
+        if ($attempt > 1) {
+            logger("$log_prefix Retrying download (attempt $attempt/$max_attempts)...");
+            sleep($delay);
+        }
+
+        # Clear previous partial download if it exists
+        unlink($dest) if -f $dest;
+
+        my $resp = $ua->get($url, ':content_file' => $dest);
+
+        if ($resp->is_success) {
+            if (defined $expected_sha && $expected_sha ne "") {
+                my $actual_sha;
+                eval {
+                    my $sha = Digest::SHA->new(256);
+                    $sha->addfile($dest);
+                    $actual_sha = $sha->hexdigest;
+                };
+                if ($@) {
+                    $last_error = "Hashing failed: $@";
+                } elsif ($actual_sha eq $expected_sha) {
+                    return (1, ""); # Success
+                } else {
+                    $last_error = "SHA256 mismatch: expected $expected_sha, got $actual_sha";
+                }
+            } else {
+                return (1, ""); # Success (no hash provided to check)
+            }
+        } else {
+            $last_error = "HTTP error: " . $resp->status_line;
+        }
+        logger("$log_prefix $last_error") if $last_error;
+    }
+
+    return (0, $last_error);
 }
 
 # Helper to send email alerts on integrity failure
@@ -336,9 +382,10 @@ foreach my $ohb_base_url (@ohb_servers) {
                 my $local_gh_zip = "$gh_tmp_dir/$zip_filename";
 
                 logger("$track_log   Comparing content against GitHub release $tag...");
-                my $gh_dl_resp = $ua->get($github_zip_url, ':content_file' => $local_gh_zip);
-                if (!$gh_dl_resp->is_success) {
-                    push @skip_reasons, "$tag: GitHub download failed (" . $gh_dl_resp->status_line . ")";
+                my $expected_sha = ($gh_asset->{digest} // "") =~ s/^sha256://r;
+                my ($success, $error) = download_with_retry($github_zip_url, $local_gh_zip, $expected_sha, "$track_log $tag:");
+                if (!$success) {
+                    push @skip_reasons, "$tag: GitHub download failed ($error)";
                     next;
                 }
 
