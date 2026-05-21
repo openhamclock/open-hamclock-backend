@@ -13,6 +13,7 @@ use LWP::UserAgent;
 use JSON::PP;
 use Digest::SHA;
 use File::Temp qw/ tempdir /;
+use FindBin;
 use File::Find;
 use Getopt::Long;
 use Sort::Versions;
@@ -49,6 +50,19 @@ my @ohb_servers = split(/\s*,\s*/, $servers_str);
 my $to_list = $cmd_to_addresses // $ENV{'OHB_VERIFY_EMAILS'};
 
 my $alert_on_missing = defined $cmd_alert_on_missing_val ? $cmd_alert_on_missing_val : $alert_on_missing_default;
+
+# --- Cache Initialization ---
+my $cache_dir = "$FindBin::Bin/cache";
+my $use_cache = 1;
+if (!-d $cache_dir) {
+    if (!mkdir($cache_dir, 0755)) {
+        logger("Warning: Could not create cache directory '$cache_dir': $!. Running without cache.");
+        $use_cache = 0;
+    }
+} elsif (!-w $cache_dir) {
+    logger("Warning: Cache directory '$cache_dir' is not writable. Running without cache.");
+    $use_cache = 0;
+}
 
 # State for aggregated reporting
 my $aggregated_alert_body = "";
@@ -126,6 +140,17 @@ sub download_with_retry {
     my ($url, $dest, $expected_sha, $log_prefix) = @_;
     my $max_attempts = 3;
     my $delay = 10;
+
+    # Check if file exists and matches SHA before attempting download
+    if (-f $dest && defined $expected_sha && $expected_sha ne "") {
+        my $actual_sha = eval {
+            my $sha = Digest::SHA->new(256);
+            $sha->addfile($dest);
+            $sha->hexdigest;
+        };
+        return (1, "") if (!$@ && defined $actual_sha && $actual_sha eq $expected_sha);
+    }
+
     my $last_error = "";
 
     for (my $attempt = 1; $attempt <= $max_attempts; $attempt++) {
@@ -150,6 +175,15 @@ sub download_with_retry {
                 if ($@) {
                     $last_error = "Hashing failed: $@";
                 } elsif ($actual_sha eq $expected_sha) {
+                    # Save the sha256sum file locally
+                    my $sha_local_path = "$dest.sha256";
+                    if (open(my $sfh, '>', $sha_local_path)) {
+                        my $filename = (split(/\//, $dest))[-1];
+                        print $sfh "$expected_sha  $filename\n";
+                        close($sfh);
+                        chmod 0644, $sha_local_path;
+                    }
+
                     return (1, ""); # Success
                 } else {
                     $last_error = "SHA256 mismatch: expected $expected_sha, got $actual_sha";
@@ -184,12 +218,34 @@ sub send_alert {
 
 # Internal helper to dispatch the final aggregated email
 sub dispatch_final_report {
-    return unless $aggregated_alert_body;
+    # Create a unique hash file per server set to allow independent tracking
+    my $servers_identity = join(',', sort @ohb_servers);
+    my $ctx_hash = Digest::SHA->new(256)->add($servers_identity)->hexdigest;
+    my $hash_file = "$cache_dir/.last_alert_hash_" . substr($ctx_hash, 0, 12);
+
+    if (!$aggregated_alert_body) {
+        # If the run is clean, remove the alert state so a future failure is emailed
+        unlink $hash_file if $use_cache && -f $hash_file;
+        return;
+    }
 
     if (!$to_list) {
         logger("CRITICAL: Alerts generated but no email configured (OHB_VERIFY_EMAILS or -t missing).", 1);
         logger("AGGREGATED ALERTS:\n$aggregated_alert_body", 1);
         return;
+    }
+
+    # Deduplicate alerts by hashing the body content
+    my $current_hash = Digest::SHA->new(256)->add($aggregated_alert_body)->hexdigest;
+    if ($use_cache && -f $hash_file) {
+        if (open(my $hfh, '<', $hash_file)) {
+            my $last_hash = <$hfh>;
+            close($hfh);
+            if (defined $last_hash && (split(/\s+/, $last_hash))[0] eq $current_hash) {
+                logger("Alert content is unchanged since last report. Skipping email dispatch.");
+                return;
+            }
+        }
     }
 
     my $final_subject = $has_integrity_failure 
@@ -203,6 +259,14 @@ sub dispatch_final_report {
         print $mail "\n";
         print $mail $aggregated_alert_body;
         close($mail);
+
+        # Record this alert hash to avoid re-sending the same report next time
+        if ($use_cache) {
+            if (open(my $hfh, '>', $hash_file)) {
+                print $hfh "$current_hash\n";
+                close($hfh);
+            }
+        }
         logger("Aggregated alert email sent to $to_list");
     } else {
         logger("Error: Failed to execute sendmail: $!\n\nAGGREGATED ALERTS:\n$aggregated_alert_body", 1);
@@ -382,8 +446,8 @@ foreach my $ohb_base_url (@ohb_servers) {
                 }
 
                 my $github_zip_url = "https://github.com/$owner/$repo/releases/download/$tag/$zip_filename";
-                my $gh_tmp_dir = tempdir(CLEANUP => 1);
-                my $local_gh_zip = "$gh_tmp_dir/$zip_filename";
+                my $gh_tmp_dir = tempdir(CLEANUP => 1); # for extraction
+                my $local_gh_zip = $use_cache ? "$cache_dir/$tag-$zip_filename" : "$gh_tmp_dir/$zip_filename";
 
                 logger("$track_log   Comparing content against GitHub release $tag...");
                 my $expected_sha = ($gh_asset->{digest} // "") =~ s/^sha256://r;
