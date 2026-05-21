@@ -302,8 +302,10 @@ foreach my $ohb_base_url (@ohb_servers) {
         }
         # Try beta bases in reverse order, stopping once we reach current stable
         my @sorted_beta_bases = sort { versioncmp($b, $a) } keys %beta_bases;
+        my $github_has_newer_beta = 0;
         foreach my $bv (@sorted_beta_bases) {
             last if versioncmp($bv, $stable_ver_served) <= 0;
+            $github_has_newer_beta = 1;
 
             my $probe_ua = "HamClock-Verifier/${bv}b00";
             $ua->agent($probe_ua);
@@ -319,9 +321,11 @@ foreach my $ohb_base_url (@ohb_servers) {
                 logger("$url_log Warning: Error probing beta base $bv: " . $v_resp->status_line);
             }
         }
-        if (!$beta_ver_served) {
+        if (!$beta_ver_served && $github_has_newer_beta) {
             logger("$url_log No active beta track detected.");
-            send_alert("$url_log Missing Beta Track", "No active beta track was found on $ohb_base_url. Probed various beta candidate versions but the server did not return a valid beta version string.") if $alert_on_missing;
+            send_alert("$url_log Missing Beta Track", "GitHub has a newer beta version available, but no active beta track was found on $ohb_base_url. Probed various beta candidate versions but the server did not return a valid beta version string.") if $alert_on_missing;
+        } elsif (!$beta_ver_served) {
+            logger("$url_log No new beta track available on GitHub (relative to stable $stable_ver_served).");
         }
     }
 
