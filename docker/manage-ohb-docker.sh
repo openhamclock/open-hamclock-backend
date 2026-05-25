@@ -1013,6 +1013,7 @@ services:
       $HTTPS_PORT_MAPPING
     volumes:
       - ohb-htdocs:/opt/hamclock-backend/htdocs
+      - $HERE/sysmsg.txt:/opt/hamclock-backend/data/sysmsg.txt
       $EXTERNAL_HTTP_LOG_MAPPING
       $HTTPS_CERT_MAPPING
     tmpfs:
