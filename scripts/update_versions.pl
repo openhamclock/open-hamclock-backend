@@ -38,6 +38,20 @@ mkdir $tmp_dir unless -d $tmp_dir;
 my $ua = LWP::UserAgent->new(timeout => 60);
 $ua->agent("Version-Cache-Updater/1.0");
 
+# Helper for retriable file downloads
+sub get_file_with_retry {
+    my ($ua, $url, $path) = @_;
+    my $resp;
+    for (my $i = 1; $i <= 3; $i++) {
+        $resp = $ua->get($url, ':content_file' => $path);
+        return $resp if $resp->is_success;
+
+        print "  Warning: Attempt $i to download $url failed: " . $resp->status_line . "\n";
+        sleep(2 * $i) if $i < 3;
+    }
+    return $resp;
+}
+
 # Helper to verify SHA256 and cleanup on failure
 sub verify_and_cleanup {
     my ($file_path, $expected_sha, $associated_files) = @_;
@@ -158,7 +172,7 @@ foreach my $item (
     my $zip_url = "https://github.com/$owner/$repo/releases/download/$orig_ver/$zip_filename";
 
     print "Update found! Downloading $item->{type} asset from $zip_url...\n";
-    my $zip_resp = $ua->get($zip_url, ':content_file' => $zip_path);
+    my $zip_resp = get_file_with_retry($ua, $zip_url, $zip_path);
 
     if ($zip_resp->is_success) {
         chmod 0644, $zip_path;
@@ -201,7 +215,7 @@ foreach my $item (
         my $bin_digest = $bin_asset->{digest} // "";
 
         print "Downloading additional binary asset from $bin_url...\n";
-        my $bin_resp = $ua->get($bin_url, ':content_file' => $bin_path);
+        my $bin_resp = get_file_with_retry($ua, $bin_url, $bin_path);
         if ($bin_resp->is_success) {
             chmod 0644, $bin_path;
             verify_and_cleanup($bin_path, $bin_digest, [$txt_file, $tag_file, $zip_path, $zip_sha_path]);
@@ -260,7 +274,7 @@ if ($sha_resp->is_success) {
 
     if ($current_sha ne $old_sha || !-f $main_zip_path) {
         print "Main branch update found (SHA: $current_sha). Downloading...\n";
-        my $zip_resp = $ua->get($main_zip_url, ':content_file' => $main_zip_path);
+        my $zip_resp = get_file_with_retry($ua, $main_zip_url, $main_zip_path);
         if ($zip_resp->is_success) {
             # Extract only the ESPHamClock folder from the main repo zip
             my $repo_root = "hamclock-main";
