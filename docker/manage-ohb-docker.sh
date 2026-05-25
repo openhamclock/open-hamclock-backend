@@ -590,6 +590,7 @@ docker_compose_reset() {
     get_current_http_port
     get_current_https_port
     get_current_image_tag
+    determine_sysmsg_file
     docker_compose_down || return $RETVAL
     docker_compose_up
 }
@@ -970,6 +971,12 @@ determine_tag() {
     fi
 }
 
+determine_sysmsg_file() {
+    SYSMSG_FILE=$HERE/sysmsg.txt
+    [ ! -e $SYSMSG_FILE ] && touch $SYSMSG_FILE
+    SYSMSG_FILE_MAPPING="- $SYSMSG_FILE:/opt/hamclock-backend/data/sysmsg.txt"
+}
+
 docker_compose_yml() {
     determine_http_port
     determine_https_port
@@ -979,6 +986,7 @@ docker_compose_yml() {
     determine_voacap_service_host
     determine_alpha_install
     determine_host_hostname
+    determine_sysmsg_file
 
     determine_tag || return $?
     IMAGE=$IMAGE_BASE:$TAG
@@ -1013,7 +1021,7 @@ services:
       $HTTPS_PORT_MAPPING
     volumes:
       - ohb-htdocs:/opt/hamclock-backend/htdocs
-      - $HERE/sysmsg.txt:/opt/hamclock-backend/data/sysmsg.txt
+      $SYSMSG_FILE_MAPPING
       $EXTERNAL_HTTP_LOG_MAPPING
       $HTTPS_CERT_MAPPING
     tmpfs:
