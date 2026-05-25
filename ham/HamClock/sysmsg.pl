@@ -17,13 +17,29 @@
 
 use strict;
 use warnings;
-use CGI;
+use LWP::UserAgent;
 
-my $cache_dir = "/opt/hamclock-backend/cache";
-my $content = <<EOF;
-This is a test message. Normally empty or blank.
-EOF
+my $alpha = $ENV{ALPHA_INSTALL} // '';
 
-my $q = CGI->new;
-print $q->header('text/plain');
-print $content;
+if ($alpha eq 'true') {
+    # Serve the message from the local data file
+    my $local_msg = '/opt/hamclock-backend/data/sysmsg.txt';
+    print "Content-Type: text/plain\r\n\r\n";
+    if (-f $local_msg && open(my $fh, '<', $local_msg)) {
+        print while <$fh>;
+        close($fh);
+    }
+} else {
+    # Pull (proxy) from the host provided in ALPHA_INSTALL
+    my $host = $alpha || 'ohb.hamclock.app';
+    $host =~ s|^https?://||;
+    my $url = "http://$host/ham/HamClock/sysmsg.pl";
+
+    my $ua = LWP::UserAgent->new(timeout => 5);
+    my $resp = $ua->get($url);
+
+    print "Content-Type: text/plain\r\n\r\n";
+    if ($resp->is_success) {
+        print $resp->decoded_content;
+    }
+}
