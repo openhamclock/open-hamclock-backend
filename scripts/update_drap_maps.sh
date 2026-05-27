@@ -29,6 +29,12 @@
 # ============================================================
 set -euo pipefail
 
+# Skip generation if we are proxying maps from a central Alpha server
+if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
+    echo "PROXY_MAPS is set to a hostname (${PROXY_MAPS}) - skipping local map generation."
+    exit 0
+fi
+
 export GMT_USERDIR=/opt/hamclock-backend/tmp
 cd "$GMT_USERDIR"
 

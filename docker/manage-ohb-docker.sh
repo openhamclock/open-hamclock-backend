@@ -46,7 +46,8 @@ DEFAULT_EXTERNAL_HTTP_LOG=false
 DEFAULT_ENV_FILE="$STARTED_FROM/.env"
 DEFAULT_MAP_SIZES=all
 DEFAULT_VOACAP_SERVICE_HOST=voacap-service:8080
-DEFAULT_ALPHA_INSTALL="ohb.hamclock.app"
+DEFAULT_ALPHA_INSTALL="true"
+DEFAULT_PROXY_MAPS="false"
 DEFAULT_HOST_HOSTNAME=$HOSTNAME
 
 # the following env is for sticky settings
@@ -169,7 +170,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":a:c:e:h:l:p:r:s:t:v:" opt; do
+    while getopts ":a:c:e:h:l:m:p:r:s:t:v:" opt; do
         case $opt in
             a)
                 REQUESTED_ALPHA_INSTALL="$OPTARG"
@@ -189,6 +190,9 @@ get_compose_opts() {
                     echo "ERROR: -$opt option must be <true|false>"
                     exit 1
                 fi
+                ;;
+            m)
+                REQUESTED_PROXY_MAPS="$OPTARG"
                 ;;
             r)
                 REQUESTED_MAP_SIZES="${OPTARG,,}"
@@ -312,6 +316,7 @@ STICKY_CERT_PATH="$CERT_PATH"
 STICKY_MAP_SIZES="$MAP_SIZES"
 STICKY_VOACAP_SERVICE_HOST="$VOACAP_SERVICE_HOST"
 STICKY_ALPHA_INSTALL="$ALPHA_INSTALL"
+STICKY_PROXY_MAPS="$PROXY_MAPS"
 STICKY_HOST_HOSTNAME=$HOST_HOSTNAME
 EOF
 }
@@ -453,6 +458,7 @@ is_ohb_installed() {
         echo "  Map sizes:             '$STICKY_MAP_SIZES'"
         echo "  voacap-service:        '$STICKY_VOACAP_SERVICE_HOST'"
         echo "  Alpha install:         '$STICKY_ALPHA_INSTALL'"
+        echo "  Proxy maps:            '$STICKY_PROXY_MAPS'"
         echo "  Service hostname:      '$STICKY_HOST_HOSTNAME'"
     fi
 
@@ -895,6 +901,27 @@ determine_alpha_install() {
     fi
 }
 
+determine_proxy_maps() {
+
+    # first precedence
+    if [ -n "$REQUESTED_PROXY_MAPS" ]; then
+        PROXY_MAPS="$REQUESTED_PROXY_MAPS"
+
+    # second precedence
+    elif [ -n "$STICKY_PROXY_MAPS" ]; then
+        PROXY_MAPS="$STICKY_PROXY_MAPS"
+
+    # third precedence
+    else
+        PROXY_MAPS="$DEFAULT_PROXY_MAPS"
+
+    fi
+
+    if [ -n "$PROXY_MAPS" ]; then
+        PROXY_MAPS_MAPPING="PROXY_MAPS: $PROXY_MAPS"
+    fi
+}
+
 determine_host_hostname() {
 
     # first precedence
@@ -985,6 +1012,7 @@ docker_compose_yml() {
     determine_map_sizes
     determine_voacap_service_host
     determine_alpha_install
+    determine_proxy_maps
     determine_host_hostname
     determine_sysmsg_file
 
@@ -1014,6 +1042,7 @@ services:
       VOACAP_SERVICE_HOST: $VOACAP_SERVICE_HOST
       $MAP_SIZES_MAPPING
       $ALPHA_INSTALL_MAPPING
+      $PROXY_MAPS_MAPPING
     networks:
       - ohb
     ports:
