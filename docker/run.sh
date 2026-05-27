@@ -21,6 +21,7 @@ echo "Start up time: $(date -u +%H:%M:%S)"
 # capture any env vars for cron, etc
 printenv | grep ^HOST_HOSTNAME= >> /etc/environment 
 printenv | grep ^ALPHA_INSTALL= >> /etc/environment 
+printenv | grep ^PROXY_MAPS= >> /etc/environment
 
 echo "Preparing for pskr ..."
 mkdir -p /opt/hamclock-backend/htdocs/pskr
