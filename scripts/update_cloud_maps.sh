@@ -17,6 +17,12 @@
 #
 set -euo pipefail
 
+# Skip generation if we are proxying maps from a central Alpha server
+if [[ -n "${ALPHA_INSTALL:-}" && "${ALPHA_INSTALL}" != "true" ]]; then
+    echo "ALPHA_INSTALL is set to a hostname (${ALPHA_INSTALL}) - skipping local map generation."
+    exit 0
+fi
+
 OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
 
 # Load unified size list

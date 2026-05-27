@@ -4,6 +4,12 @@
 # Matches aurora map pipeline: D/N variants, all sizes from lib_sizes.sh
 set -euo pipefail
 
+# Skip generation if we are proxying maps from a central Alpha server
+if [[ -n "${ALPHA_INSTALL:-}" && "${ALPHA_INSTALL}" != "true" ]]; then
+    echo "ALPHA_INSTALL is set to a hostname (${ALPHA_INSTALL}) - skipping local map generation."
+    exit 0
+fi
+
 export GMT_USERDIR=/opt/hamclock-backend/tmp
 cd "$GMT_USERDIR"
 
