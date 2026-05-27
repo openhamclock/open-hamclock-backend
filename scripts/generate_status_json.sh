@@ -170,8 +170,8 @@ NOW_EPOCH=$(date -u +%s)
 # ── Remote Alpha Status ─────────────────────────────────────────────────────
 declare -A REMOTE_MAP_MOD=()
 declare -A REMOTE_MAP_STATUS=()
-if [[ -n "${ALPHA_INSTALL:-}" && "${ALPHA_INSTALL}" != "true" ]]; then
-    REMOTE_URL="http://${ALPHA_INSTALL}/ham/HamClock/status.json"
+if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
+    REMOTE_URL="http://${PROXY_MAPS}/ham/HamClock/status.json"
     REMOTE_JSON=$(curl -sSL --max-time 10 "$REMOTE_URL")
     if [[ -n "$REMOTE_JSON" ]] && echo "$REMOTE_JSON" | jq -e . >/dev/null 2>&1; then
         while IFS=$'\t' read -r rfname mtime status; do

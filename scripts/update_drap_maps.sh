@@ -30,8 +30,8 @@
 set -euo pipefail
 
 # Skip generation if we are proxying maps from a central Alpha server
-if [[ -n "${ALPHA_INSTALL:-}" && "${ALPHA_INSTALL}" != "true" ]]; then
-    echo "ALPHA_INSTALL is set to a hostname (${ALPHA_INSTALL}) - skipping local map generation."
+if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
+    echo "PROXY_MAPS is set to a hostname (${PROXY_MAPS}) - skipping local map generation."
     exit 0
 fi
 
