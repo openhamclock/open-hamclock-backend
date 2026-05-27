@@ -17,7 +17,6 @@
 
 use strict;
 use warnings;
-use LWP::UserAgent;
 use JSON;
 use URI::Escape;
 use CGI;
@@ -145,20 +144,65 @@ my $body;
 if (defined $cached_body) {
     $body = $cached_body;
 } else {
-    my $ua = LWP::UserAgent->new(agent => $UA_STRING);
-    $ua->timeout($HTTP_TIMEOUT);
-
     my $url = $WSPR_URL . "?query=" . uri_escape($sql);
 
     my $attempt = 0;
-    my $response;
-    while ($attempt <= $MAX_RETRIES) {
-        $response = $ua->get($url);
-        last if $response->is_success;
+    my $http_code = 0;
+    my $curl_body;
+    my $curl_err;
 
-        my $code = $response->code;
-        # Retry only on transient server errors
-        if ($code >= 500 && $code < 600 && $attempt < $MAX_RETRIES) {
+    while ($attempt <= $MAX_RETRIES) {
+        # -s silent, -S show errors, -L follow redirects,
+        # -A user-agent, --max-time timeout,
+        # -w writes the HTTP status code on its own line at the end.
+        # The `--` keeps curl from interpreting the URL as an option,
+        # and passing args via list form avoids any shell quoting issues.
+        my @cmd = (
+            'curl',
+            '-sSL',
+            '-A', $UA_STRING,
+            '--max-time', $HTTP_TIMEOUT,
+            '-w', "\n%{http_code}",
+            '--', $url,
+        );
+
+        my $pid = open(my $ch, '-|');
+        if (!defined $pid) {
+            $curl_err = "fork failed: $!";
+            last;
+        }
+        if ($pid == 0) {
+            exec(@cmd) or exit 127;
+        }
+        local $/;
+        my $raw = <$ch>;
+        close $ch;
+        my $exit = $? >> 8;
+
+        if ($exit != 0) {
+            $curl_err = "curl exited with status $exit";
+            # Treat curl transport errors like a 5xx for retry purposes
+            if ($attempt < $MAX_RETRIES) {
+                my $sleep = $RETRY_BASE * (2 ** $attempt) + rand(1);
+                sleep($sleep);
+                $attempt++;
+                next;
+            }
+            last;
+        }
+
+        # Split body from the trailing HTTP status code that -w appended
+        if (defined $raw && $raw =~ /\A(.*)\n(\d{3})\z/s) {
+            $curl_body = $1;
+            $http_code = $2 + 0;
+        } else {
+            $curl_err = "could not parse curl output";
+            last;
+        }
+
+        last if $http_code >= 200 && $http_code < 300;
+
+        if ($http_code >= 500 && $http_code < 600 && $attempt < $MAX_RETRIES) {
             my $sleep = $RETRY_BASE * (2 ** $attempt) + rand(1);
             sleep($sleep);
             $attempt++;
@@ -167,19 +211,20 @@ if (defined $cached_body) {
         last;
     }
 
-    if (!$response->is_success) {
-        my $code = $response->code;
-        if ($code == 429 || $code == 403) {
+    if ($http_code < 200 || $http_code >= 300) {
+        if ($http_code == 429 || $http_code == 403) {
             print "ERROR: Rate limit exceeded. Back off before retrying.\n";
-        } elsif ($code == 503) {
+        } elsif ($http_code == 503) {
             print "ERROR: wspr.live temporarily unavailable (503) after retries.\n";
+        } elsif ($http_code == 0) {
+            print "HTTP ERROR: curl failed: " . ($curl_err // "unknown") . "\n";
         } else {
-            print "HTTP ERROR: " . $response->status_line . "\n";
+            print "HTTP ERROR: HTTP $http_code from wspr.live\n";
         }
         exit;
     }
 
-    $body = $response->decoded_content;
+    $body = $curl_body;
 
     # Write cache (best-effort)
     # In other words, if the cache can't be written then we don't care
@@ -196,18 +241,16 @@ if ($@ || !$decoded || !$decoded->{data}) {
     exit;
 }
 
-# Decoded. Now, emit in HamClock wire format
-# HamClock expects frequency as integer Hz, not decimal MHz.
+# Decoded. Now, emit in HamClock wire format.
+# HamClock parses the frequency field with %ld and treats it as Hz.
 foreach my $row (@{$decoded->{data}}) {
-    my $freq_hz = int(($row->{frequency} // 0) + 0);
-
     printf("%s,%s,%s,%s,%s,WSPR,%d,%d\n",
         $row->{epoch}      // 0,
         uc($row->{tx_loc}  // ""),
         uc($row->{tx_sign} // ""),
         uc($row->{rx_loc}  // ""),
         uc($row->{rx_sign} // ""),
-        $freq_hz,
+        int($row->{frequency} // 0),   # Hz as integer
         $row->{snr}        // 0,
     );
 }
