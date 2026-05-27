@@ -167,6 +167,21 @@ classify_age() {
 NOW=$(date -u "+%Y-%m-%d %H:%M:%S")
 NOW_EPOCH=$(date -u +%s)
 
+# ── Remote Alpha Status ─────────────────────────────────────────────────────
+declare -A REMOTE_MAP_MOD=()
+declare -A REMOTE_MAP_STATUS=()
+if [[ -n "${ALPHA_INSTALL:-}" && "${ALPHA_INSTALL}" != "true" ]]; then
+    REMOTE_URL="http://${ALPHA_INSTALL}/ham/HamClock/status.json"
+    REMOTE_JSON=$(curl -sSL --max-time 10 "$REMOTE_URL")
+    if [[ -n "$REMOTE_JSON" ]] && echo "$REMOTE_JSON" | jq -e . >/dev/null 2>&1; then
+        while IFS=$'\t' read -r rfname mtime status; do
+            [[ -n "$rfname" ]] || continue
+            REMOTE_MAP_MOD["$rfname"]="$mtime"
+            REMOTE_MAP_STATUS["$rfname"]="$status"
+        done < <(echo "$REMOTE_JSON" | jq -r '.files[] | select(.category=="map") | "\(.filename)\t\(.modified_utc)\t\(.status)"' 2>/dev/null)
+    fi
+fi
+
 # ── Dynamic endpoints sidecar ────────────────────────────────────────────────
 # Populated by probe_dynamic_endpoints.sh on its own cron (every 30 min).
 # We read it here and surface ACTIVE/DEGRADED/DOWN in both HTML and JSON.
@@ -235,22 +250,32 @@ emit_file_row() {
     filename=$(basename "$filepath")
     [ "$filename" = "ignore" ] && return
 
-    local mod_epoch
-    mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
-    local mod_human
-    mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
-             || date -u -r "$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-    local age_sec=$(( NOW_EPOCH - mod_epoch ))
+    local mod_epoch mod_human age_sec status_class status_text
+
+    if [[ "$label" == "map" && -n "${REMOTE_MAP_MOD[$filename]:-}" ]]; then
+        mod_human="${REMOTE_MAP_MOD[$filename]}"
+        mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
+        age_sec=$(( NOW_EPOCH - mod_epoch ))
+        status_text="${REMOTE_MAP_STATUS[$filename]}"
+        case "$status_text" in
+            FRESH)  status_class="ok" ;;
+            RECENT) status_class="warn" ;;
+            AGED)   status_class="aged" ;;
+            STALE)  status_class="stale" ;;
+            *)      status_class="static" ;;
+        esac
+    else
+        mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
+        mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
+                 || date -u -r "$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
+        age_sec=$(( NOW_EPOCH - mod_epoch ))
+        class_text=$(classify_age "$age_sec" "$(get_thresholds "$label" "$filename")")
+        status_class=$(awk '{print $1}' <<< "$class_text")
+        status_text=$(awk '{print $2}' <<< "$class_text")
+    fi
+
     local age_min=$(( age_sec / 60 ))
     local age_h=$(( age_sec / 3600 ))
-
-    local thresholds
-    thresholds=$(get_thresholds "$label" "$filename")
-    local class_text
-    class_text=$(classify_age "$age_sec" "$thresholds")
-    local status_class status_text
-    status_class=$(awk '{print $1}' <<< "$class_text")
-    status_text=$(awk '{print $2}' <<< "$class_text")
 
     local age_str
     if   [ "$age_h"   -ge 48 ]; then age_str="$(( age_h / 24 ))d ago"
@@ -356,19 +381,20 @@ build_json_entries() {
         filename=$(basename "$filepath")
         [ "$filename" = "ignore" ] && continue
 
-        local mod_epoch
-        mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
-        local mod_human
-        mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
-                 || date -u -r "$mod_epoch"   "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
-        local age_sec=$(( NOW_EPOCH - mod_epoch ))
+        local mod_epoch mod_human age_sec status_text
 
-        local thresholds
-        thresholds=$(get_thresholds "$label" "$filename")
-        local class_text
-        class_text=$(classify_age "$age_sec" "$thresholds")
-        local status_text
-        status_text=$(awk '{print $2}' <<< "$class_text")
+        if [[ "$label" == "map" && -n "${REMOTE_MAP_MOD[$filename]:-}" ]]; then
+            mod_human="${REMOTE_MAP_MOD[$filename]}"
+            mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
+            age_sec=$(( NOW_EPOCH - mod_epoch ))
+            status_text="${REMOTE_MAP_STATUS[$filename]}"
+        else
+            mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
+            mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+                     || date -u -r "$mod_epoch"   "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+            age_sec=$(( NOW_EPOCH - mod_epoch ))
+            status_text=$(classify_age "$age_sec" "$(get_thresholds "$label" "$filename")" | awk '{print $2}')
+        fi
 
         local safe_name safe_label
         safe_name=$(printf '%s' "$filename" | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -413,7 +439,6 @@ build_json() {
         if [ "$DYN_AVAILABLE" -eq 1 ]; then
             # Use the already read and validated content
             printf '  "dynamic": %s,\n' "$DYNAMIC_SIDECAR_CONTENT"
-            printf ',\n'
         else
             printf '  "dynamic": null,\n'
         fi
