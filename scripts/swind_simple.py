@@ -58,6 +58,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import shutil
 import tempfile
 import urllib.request
 from datetime import datetime, timezone
@@ -65,6 +66,7 @@ from typing import List, Tuple
 
 URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
 OUT = "/opt/hamclock-backend/htdocs/ham/HamClock/solar-wind/swind-24hr.txt"
+TMP_DIR = "/opt/hamclock-backend/tmp"
 
 # 24h at ~1-minute cadence
 KEEP_N = 1440
@@ -179,12 +181,14 @@ def apply_window(samples: List[Tuple[int, float, float]]) -> List[Tuple[int, flo
 
 
 def atomic_write(path: str, lines: List[str]) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".swind-", dir=os.path.dirname(path))
+    os.makedirs(TMP_DIR, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".swind-", dir=TMP_DIR)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.writelines(lines)
-        os.replace(tmp, path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        shutil.move(tmp, path)
+        os.chmod(path, 0o644)
     except Exception:
         try:
             os.unlink(tmp)

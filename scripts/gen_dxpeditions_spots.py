@@ -43,9 +43,11 @@ Model:
 import re
 import sys
 import time
+import shutil
 import hashlib
 import logging
 import argparse
+import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dataclasses import dataclass
@@ -63,6 +65,7 @@ from lxml import html as lxml_html
 
 OUT_FILE  = Path('/opt/hamclock-backend/htdocs/ham/HamClock/dxpeds/dxpeditions.txt')
 LOCK_FILE = Path('/opt/hamclock-backend/tmp/gen_dxpeditions.lock')
+TMP_DIR   = Path('/opt/hamclock-backend/tmp')
 
 NG3K_URL        = 'https://www.ng3k.com/Misc/adxoplain.html'
 NG3K_URL_OUTPUT = 'http://www.ng3k.com/Misc/adxo.html'
@@ -660,9 +663,12 @@ def write_if_changed(content: str, path: Path) -> bool:
             log.info('Refreshing file timestamp.')
             path.touch()
             return False
-    tmp = path.with_suffix('.tmp')
-    tmp.write_text(content)
-    tmp.replace(path)
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile('w', dir=str(TMP_DIR), delete=False) as tf:
+        tf.write(content)
+        tmp_name = tf.name
+    shutil.move(tmp_name, path)
+    os.chmod(path, 0o644)
     log.info('Wrote %d bytes to %s', len(content), path)
     return True
 

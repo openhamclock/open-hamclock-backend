@@ -31,6 +31,7 @@
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -39,6 +40,7 @@ from urllib.request import Request, urlopen
 
 URL = "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json"
 OUT = Path("/opt/hamclock-backend/htdocs/ham/HamClock/aurora/aurora.txt")
+TMP_DIR = Path("/opt/hamclock-backend/tmp")
 
 RESEED_GAP = 12 * 3600
 RESEED_POINTS = 48
@@ -81,16 +83,18 @@ def load_max_value() -> int:
 
 
 def atomic_write_lines(path: Path, lines: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w",
         encoding="utf-8",
-        dir=str(path.parent),
+        dir=str(TMP_DIR),
         delete=False,
     ) as tmp:
         tmp.writelines(lines)
         tmp_name = tmp.name
-    os.replace(tmp_name, path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(tmp_name, path)
+    os.chmod(path, 0o644)
 
 
 def reseed(bucket_ts: int, value: int) -> None:
