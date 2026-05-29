@@ -47,7 +47,8 @@ THRESH_DRAP_WIND="${THRESH_DRAP_WIND:-600 1200 3600}"
 THRESH_XRAY="${THRESH_XRAY:-300 600 1800}"
 THRESH_AURORA="${THRESH_AURORA:-1800 3600 7200}"
 THRESH_SDO_SPACE="${THRESH_SDO_SPACE:-3600 7200 14400}"
-THRESH_SSN="${THRESH_SSN:-86400 172800 259200}" # 1d 2d 3d
+THRESH_SSN="${THRESH_SSN:-7200 14400 28800}" # 1d 2d 3d
+THRESH_SSN_HISTORY="${THRESH_SSN_HISTORY:-86400 172800 259200}" # 1d 2d 3d
 THRESH_ESATS="${THRESH_ESATS:-3600 7200 14400}"
 THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
 THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
@@ -127,6 +128,10 @@ get_thresholds() {
             echo "$THRESH_SOLAR_HISTORY"
             return
             ;;
+        ssn-history*)
+            echo "$THRESH_SSN_HISTORY"
+            return
+            ;;
     esac
 
     # Per-category thresholds: echo "fresh_sec recent_sec aged_sec"
@@ -137,6 +142,7 @@ get_thresholds() {
         aurora)                                echo "$THRESH_AURORA"     ;;
         NOAASpaceWX|dst|geomag|solar-flux|SDO) echo "$THRESH_SDO_SPACE"  ;;
         ssn)                                   echo "$THRESH_SSN"        ;;
+        ssn-history)                           echo "$THRESH_SSN_HISTORY";;
         esats)                                 echo "$THRESH_ESATS"      ;;
         contests)                              echo "$THRESH_CONTESTS"   ;;
         cty|dxpeds)                            echo "$THRESH_CTY_DX"     ;;
