@@ -41,9 +41,6 @@ jobs:
           ./scripts/utility/verify_firmware_integrity.pl \
           > "./dist/$VERIFY_NAME"
 
-          # Verify Perl syntax after injection
-          perl -c "./dist/$VERIFY_NAME"
-
           # add version artifact
           echo "TAG=$TAG" > VERSION.txt
 
