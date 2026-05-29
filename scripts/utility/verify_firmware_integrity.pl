@@ -33,20 +33,17 @@ my $cmd_servers;
 my $cmd_to_addresses;
 my $cmd_alert_on_missing_val;
 my $cmd_upgrade;
+my $cmd_force;
 
 GetOptions(
     "s=s" => \$cmd_servers,          # Comma-separated list of server URLs
     "t=s" => \$cmd_to_addresses,     # Comma-separated list of email addresses
     "a:i" => \$cmd_alert_on_missing_val, # 0 or 1, overrides default
     "u"   => \$cmd_upgrade,          # Self-upgrade flag
+    "f"   => \$cmd_force,            # Force upgrade flag
 ) or die "Error in command line arguments\n";
 
 my $servers_str = $cmd_servers // $ENV{'OHB_VERIFY_SERVERS'};
-die "Error: OHB_VERIFY_SERVERS environment variable or -s option is not set. Please provide a comma-separated list of server URLs.\n"
-    unless defined $servers_str && $servers_str ne '';
-
-my @ohb_servers = split(/\s*,\s*/, $servers_str);
-
 my $to_list = $cmd_to_addresses // $ENV{'OHB_VERIFY_EMAILS'};
 
 my $alert_on_missing = defined $cmd_alert_on_missing_val ? $cmd_alert_on_missing_val : $alert_on_missing_default;
@@ -87,11 +84,12 @@ if ($cmd_upgrade) {
     if ($resp->is_success) {
         my $data = decode_json($resp->decoded_content);
         my $latest_tag = $data->{tag_name};
-        my $clean_tag = $latest_tag;
-        $clean_tag =~ s/^v//i;
 
-        if (versioncmp($clean_tag, $VERSION) > 0) {
-            logger("New version $latest_tag available (current: $VERSION). Upgrading...");
+        if ($cmd_force || versioncmp($latest_tag, $VERSION) > 0) {
+            my $msg = ($cmd_force && versioncmp($latest_tag, $VERSION) <= 0)
+                ? "Force upgrade requested (current: $VERSION, latest: $latest_tag). Upgrading..."
+                : "New version $latest_tag available (current: $VERSION). Upgrading...";
+            logger($msg);
 
             # Find the versioned asset in the release metadata
             my $asset_name = "verify_firmware_integrity-$latest_tag.pl";
@@ -119,6 +117,11 @@ if ($cmd_upgrade) {
     }
     exit 0;
 }
+
+die "Error: OHB_VERIFY_SERVERS environment variable or -s option is not set. Please provide a comma-separated list of server URLs.\n"
+    unless defined $servers_str && $servers_str ne '';
+
+my @ohb_servers = split(/\s*,\s*/, $servers_str);
 
 sub logger {
     my ($msg, $force) = @_;
@@ -586,6 +589,9 @@ Usage:
 
   # Check for script updates and upgrade if available
   ./verify_firmware_integrity.pl -u
+
+  # Force an upgrade even if versions match
+  ./verify_firmware_integrity.pl -u -f
 
   # Override environment variables with command-line options
   OHB_VERIFY_SERVERS="https://another-server" OHB_VERIFY_EMAILS="backup@example.com" ./verify_firmware_integrity.pl -s "https://your-server-ip"
