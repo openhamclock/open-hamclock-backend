@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -37,6 +38,7 @@ import requests
 
 KP_URL  = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json"
 OUTFILE = "/opt/hamclock-backend/htdocs/ham/HamClock/geomag/kindex.txt"
+TMP_DIR = "/opt/hamclock-backend/tmp"
 
 TIMEOUT = 20
 HEADERS = {"User-Agent": "OHB kindex_simple.py"}
@@ -83,20 +85,22 @@ def build_output(records: list[dict]) -> list[float]:
 
 
 def atomic_write_lines(path: str, values: list[float]) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(TMP_DIR, exist_ok=True)
     payload = "".join(f"{v:.2f}\n" for v in values)
 
     fd, tmp = tempfile.mkstemp(
         prefix=".kindex.",
         suffix=".tmp",
-        dir=os.path.dirname(path),
+        dir=TMP_DIR,
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        shutil.move(tmp, path)
+        os.chmod(path, 0o644)
     except Exception:
         try:
             os.unlink(tmp)

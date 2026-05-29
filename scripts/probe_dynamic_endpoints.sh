@@ -101,7 +101,6 @@ ENDPOINTS=(
   "psk_reporter|fetchPSKReporter.pl?ofcall=W1AW&maxage=3600|1"
   "wspr.live|fetchWSPR.pl?ofcall=W1AW&maxage=3600|1"
   "rbn|fetchRBN.pl?ofcall=W1AW&maxage=3600|1"
-  "wspr|fetchWSPR.pl?ofcall=W1AW&maxage=3600|1"
   "band_conditions|fetchBandConditions.pl?MODE=19&MONTH=0&YEAR=2026&UTC=12&TXLAT=40&TXLNG=-90&RXLAT=50&RXLNG=10&POW=100&TOA=3&PATH=0|0"
   "voacap_muf|fetchVOACAP-MUF.pl?TXLAT=40&TXLNG=-90&MODE=19&MONTH=1&YEAR=2026&UTC=12&WATTS=100&MHZ=14.1&HEIGHT=330&WIDTH=660&TOA=3&PATH=0|0"
   "voacap_toa|fetchVOACAP-TOA.pl?TXLAT=40&TXLNG=-90&MODE=19&MONTH=1&YEAR=2026&UTC=12&WATTS=100&MHZ=21.1&HEIGHT=330&WIDTH=660&TOA=3&PATH=0|0"

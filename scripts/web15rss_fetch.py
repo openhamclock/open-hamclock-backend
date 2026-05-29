@@ -27,6 +27,7 @@
 import os
 import sys
 import logging
+import shutil
 import tempfile
 from datetime import date, datetime
 
@@ -38,6 +39,7 @@ from bs4 import BeautifulSoup
 # Config
 # ---------------------------------------------------------------------------
 CACHE_DIR = "/opt/hamclock-backend/cache/rss"
+TMP_DIR = "/opt/hamclock-backend/tmp"
 REQUEST_TIMEOUT = 15
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 ARNEWSLINE_MAX = 5
@@ -72,9 +74,9 @@ def write_cache(name: str, lines: list[str], encoding: str | None = None) -> Non
 
     enc = encoding or CACHE_ENCODINGS.get(name, "utf-8")
 
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    os.makedirs(TMP_DIR, exist_ok=True)
     dest = os.path.join(CACHE_DIR, f"{name}.txt")
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=CACHE_DIR, prefix=f"{name}_", suffix=".tmp")
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=TMP_DIR, prefix=f"{name}_", suffix=".tmp")
 
     try:
         with os.fdopen(tmp_fd, "w", encoding=enc, errors="replace", newline="\n") as fh:
@@ -82,7 +84,9 @@ def write_cache(name: str, lines: list[str], encoding: str | None = None) -> Non
             fh.flush()
             os.fsync(fh.fileno())
 
-        os.replace(tmp_path, dest)  # atomic on Linux (same filesystem)
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        shutil.move(tmp_path, dest)
+        os.chmod(dest, 0o644)
         log.info("[%s] Wrote %d lines to cache (%s)", name, len(lines), enc)
 
     except Exception:

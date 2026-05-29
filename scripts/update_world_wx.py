@@ -46,6 +46,8 @@ import json
 import os
 import re
 import sys
+import shutil
+import tempfile
 import time
 import warnings
 
@@ -153,14 +155,16 @@ def read_json(path, default=None):
 
 def write_json_atomic(path, obj):
     """Write obj as JSON to path atomically (tmp file + os.replace)."""
-    tmp = path + f".{os.getpid()}.tmp"
+    os.makedirs(TMP_DIR, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=TMP_DIR, prefix="cache", suffix=".tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(obj, fh)
-        os.replace(tmp, path)
+        shutil.move(tmp, path)
+        os.chmod(path, 0o644)
     except Exception as exc:
         print(f"WARN: could not write {path}: {exc}", file=sys.stderr)
-        try:
+        if os.path.exists(tmp):
             os.unlink(tmp)
         except OSError:
             pass
@@ -350,11 +354,11 @@ def write_wx_txt(out_path, cache):
     Iterates lon-major (outer LONS, inner LATS) with a blank line between
     lon groups — identical structure to the original Perl output.
     """
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    tmp_path = out_path + f".{os.getpid()}.tmp"
+    os.makedirs(TMP_DIR, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=TMP_DIR, prefix="wx", suffix=".tmp")
 
     try:
-        with open(tmp_path, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write("#   lat     lng  temp,C     %hum    mps     dir    mmHg    Wx           TZ\n")
             for lon in LONS:
                 for lat in LATS:
@@ -362,7 +366,9 @@ def write_wx_txt(out_path, cache):
                     r   = cache.get(key, FALLBACK)
                     fh.write(fmt_line(lat, lon, r))
                 fh.write("\n")  # blank line between lon groups
-        os.replace(tmp_path, out_path)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        shutil.move(tmp_path, out_path)
+        os.chmod(out_path, 0o644)
     except Exception as exc:
         print(f"ERROR: could not write {out_path}: {exc}", file=sys.stderr)
         try:

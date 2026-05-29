@@ -79,10 +79,12 @@ The storms subdirectory is created automatically if it does not exist.
 import sys
 import os
 import json
+import shutil
 import urllib.request
 import urllib.error
 import datetime
 import argparse
+import tempfile
 import math
 
 # ---------------------------------------------------------------------------
@@ -93,6 +95,7 @@ NHC_CURRENT_STORMS_URL = "https://www.nhc.noaa.gov/CurrentStorms.json"
 
 STORMS_OUTPUT_DIR = "/opt/hamclock-backend/htdocs/ham/HamClock/storms"
 STORMS_OUTPUT_FILE = os.path.join(STORMS_OUTPUT_DIR, "storms.txt")
+TMP_DIR = "/opt/hamclock-backend/tmp"
 
 # ATCF best-track and forecast files -- used for live data and testing
 # Active season: ftp.nhc.noaa.gov/atcf/btk/b{id}.dat (best track, updated in-season)
@@ -588,12 +591,17 @@ def write_storms_file(lines, outfile=STORMS_OUTPUT_FILE):
     outdir = os.path.dirname(outfile)
     os.makedirs(outdir, mode=0o755, exist_ok=True)
 
-    tmpfile = f"{outfile}.tmp"
-    with open(tmpfile, 'w') as f:
-        f.write(body)
-
-    os.chmod(tmpfile, 0o644)
-    os.replace(tmpfile, outfile)
+    os.makedirs(TMP_DIR, exist_ok=True)
+    fd, tmpfile = tempfile.mkstemp(dir=TMP_DIR, prefix="storms", suffix=".tmp")
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(body)
+        shutil.move(tmpfile, outfile)
+        os.chmod(outfile, 0o644)
+    except Exception:
+        if os.path.exists(tmpfile):
+            os.unlink(tmpfile)
+        raise
 
     print(f"Written {len(lines)} lines to {outfile}", file=sys.stderr)
 
