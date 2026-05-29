@@ -99,6 +99,7 @@ ENDPOINTS=(
   "wx|wx.pl?lat=33.4&lng=-90.5&is_de=1|0"
   "rss|RSS/web15rss.pl|0"
   "psk_reporter|fetchPSKReporter.pl?ofcall=W1AW&maxage=3600|1"
+  "wspr.live|fetchWSPR.pl?ofcall=W1AW&maxage=3600|1"
   "rbn|fetchRBN.pl?ofcall=W1AW&maxage=3600|1"
   "wspr|fetchWSPR.pl?ofcall=W1AW&maxage=3600|1"
   "band_conditions|fetchBandConditions.pl?MODE=19&MONTH=0&YEAR=2026&UTC=12&TXLAT=40&TXLNG=-90&RXLAT=50&RXLNG=10&POW=100&TOA=3&PATH=0|0"

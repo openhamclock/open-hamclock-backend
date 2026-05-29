@@ -20,6 +20,7 @@ OHB_MANAGER_VERSION=latest
 # tags to use
 VOACAP_SERVICE_TAG=1.16
 PSKR_MQTT_CACHE_TAG=1.13
+WSPR_LIVE_CACHE_TAG=0.2
 
 GITHUB_LATEST_RELEASE_URL="https://api.github.com/repos/komacke/open-hamclock-backend/releases/latest"
 OHB_HTDOCS_DVC=ohb-htdocs
@@ -442,10 +443,12 @@ is_ohb_installed() {
         get_current_http_port
         get_current_https_port
         get_current_pskr_image_tag
+        get_current_wspr_image_tag
         get_current_voacap_image_tag
         echo "  OHB version:           '$CURRENT_TAG'"
         echo "  Docker image:          '$CURRENT_IMAGE_BASE:$CURRENT_TAG'"
         echo "  Docker image (pskr):   '$CURRENT_PSKR_IMAGE_BASE:$CURRENT_PSKR_TAG'"
+        echo "  Docker image (wspr):   '$CURRENT_WSPR_IMAGE_BASE:$CURRENT_WSPR_TAG'"
         echo "  Docker image (voacap): '$CURRENT_VOACAP_IMAGE_BASE:$CURRENT_VOACAP_TAG'"
         echo "  HTTP PORT in use:      '$CURRENT_HTTP_PORT'"
         if [ -n "$CURRENT_HTTPS_PORT" ]; then
@@ -734,6 +737,14 @@ get_current_pskr_image_tag() {
     if [ "$CURRENT_PSKR_DOCKER_IMAGE" != 'null' ]; then
         CURRENT_PSKR_TAG=${CURRENT_PSKR_DOCKER_IMAGE#*:}
         CURRENT_PSKR_IMAGE_BASE=${CURRENT_PSKR_DOCKER_IMAGE%:*}
+    fi
+}
+
+get_current_wspr_image_tag() {
+    CURRENT_WSPR_DOCKER_IMAGE=$(docker inspect wspr-live-cache 2>/dev/null | jq -r '.[0].Config.Image')
+    if [ "$CURRENT_WSPR_DOCKER_IMAGE" != 'null' ]; then
+        CURRENT_WSPR_TAG=${CURRENT_WSPR_DOCKER_IMAGE#*:}
+        CURRENT_WSPR_IMAGE_BASE=${CURRENT_WSPR_DOCKER_IMAGE%:*}
     fi
 }
 
@@ -1039,6 +1050,7 @@ services:
     environment:
       HOST_HOSTNAME: $HOST_HOSTNAME
       PSKR_UID: 1001
+      WSPR_UID: 1002
       VOACAP_SERVICE_HOST: $VOACAP_SERVICE_HOST
       $MAP_SIZES_MAPPING
       $ALPHA_INSTALL_MAPPING
@@ -1076,6 +1088,32 @@ services:
         target: /data
         volume:
           subpath: pskr
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "2"
+    depends_on:
+      web:
+        condition: service_healthy
+
+  wspr-live-cache:
+    container_name: wspr-live-cache
+    image: komacke/wspr-live-cache:$WSPR_LIVE_CACHE_TAG
+    restart: unless-stopped
+    environment:
+      WSPR_DB_PATH: /data/wspr-live-cache.sqlite3
+      WSPR_MAX_QUERY_AGE_SECONDS: 86400
+      WSPR_RESPONSE_CACHE_SECONDS: 45
+      WSPR_API_UPSTREAM_DISABLED: "true"
+      WSPR_RETENTION_HOURS: "7"
+    networks:
+      - ohb
+    volumes:
+      - type: volume
+        source: ohb-htdocs
+        target: /data
+        volume:
+          subpath: wspr
     logging:
       options:
         max-size: "10m"
