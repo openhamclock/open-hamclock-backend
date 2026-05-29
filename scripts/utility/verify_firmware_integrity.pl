@@ -103,7 +103,7 @@ if ($cmd_upgrade) {
             my $expected_sha = ($asset->{digest} // "") =~ s/^sha256://r;
             my ($success, $error) = download_with_retry($asset->{browser_download_url}, $0, $expected_sha, "Upgrade:");
             if ($success) {
-                logger("Upgrade successful. Script replaced at $0. Please restart.", 1);
+                logger("Upgrade successful. Script replaced at $0.", 1);
                 exit 0;
             } else {
                 logger("Error downloading upgrade: $error", 1);
@@ -144,6 +144,9 @@ sub download_with_retry {
     my $max_attempts = 3;
     my $delay = 10;
 
+    # Capture original permissions to preserve them (essential for self-upgrade)
+    my $mode = (stat($dest))[2] & 07777 if -e $dest;
+
     # Check if file exists and matches SHA before attempting download
     if (-f $dest && defined $expected_sha && $expected_sha ne "") {
         my $actual_sha = eval {
@@ -178,15 +181,8 @@ sub download_with_retry {
                 if ($@) {
                     $last_error = "Hashing failed: $@";
                 } elsif ($actual_sha eq $expected_sha) {
-                    # Save the sha256sum file locally
-                    my $sha_local_path = "$dest.sha256";
-                    if (open(my $sfh, '>', $sha_local_path)) {
-                        my $filename = (split(/\//, $dest))[-1];
-                        print $sfh "$expected_sha  $filename\n";
-                        close($sfh);
-                        chmod 0644, $sha_local_path;
-                    }
-
+                unlink("$dest.sha256"); # Remove sidecar file to clean up
+                chmod($mode, $dest) if defined $mode;
                     return (1, ""); # Success
                 } else {
                     $last_error = "SHA256 mismatch: expected $expected_sha, got $actual_sha";
