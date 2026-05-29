@@ -27,6 +27,10 @@ echo "Preparing for pskr ..."
 mkdir -p /opt/hamclock-backend/htdocs/pskr
 chown $PSKR_UID /opt/hamclock-backend/htdocs/pskr
 
+echo "Preparing for wspr ..."
+mkdir -p /opt/hamclock-backend/htdocs/wspr
+chown $WSPR_UID /opt/hamclock-backend/htdocs/wspr
+
 # migrating to a new home
 mkdir -p /opt/hamclock-backend/htdocs/state
 if [ -e /opt/hamclock-backend/htdocs/prime_crontabs.done ]; then

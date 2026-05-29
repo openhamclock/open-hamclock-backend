@@ -10,7 +10,7 @@ This includes, but is not limited to:
 - Enabling HTTPS/TLS if your instance is publicly accessible
 - Keeping the operating system and packages up to date
 - Managing logs and any IP or usage data your server may collect
-- Respecting the terms of service and rate limits of upstream data providers (such as NOAA, SWPC, PSKReporter, KC2G, and others)
+- Respecting the terms of service and rate limits of upstream data providers (such as NOAA, SWPC, PSKReporter, KC2G, wspr.live, and others)
 
 The OHB maintainers do not monitor, manage, or secure third-party deployments. If you make your instance publicly available, you assume responsibility for how it is configured and operated.
 
