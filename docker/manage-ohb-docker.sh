@@ -1010,9 +1010,17 @@ determine_tag() {
 }
 
 determine_sysmsg_file() {
-    SYSMSG_FILE=$HERE/sysmsg.txt
-    [ ! -e $SYSMSG_FILE ] && touch $SYSMSG_FILE
-    SYSMSG_FILE_MAPPING="- $SYSMSG_FILE:/opt/hamclock-backend/data/sysmsg.txt"
+    SYSMSG_FILE="$HERE/msg/sysmsg.txt"
+    SYSMSG_FILE_PATH="$(dirname "$SYSMSG_FILE")"
+    if [ "$ALPHA_INSTALL" == true ]; then
+        if [ ! -e "$SYSMSG_FILE" ]; then
+            mkdir -p "$SYSMSG_FILE_PATH"
+            touch "$SYSMSG_FILE"
+        fi
+        SYSMSG_FILE_MAPPING="- \"$SYSMSG_FILE_PATH:/opt/hamclock-backend/data/msg\""
+    else
+        SYSMSG_FILE_MAPPING=
+    fi
 }
 
 docker_compose_yml() {

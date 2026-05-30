@@ -23,7 +23,7 @@ my $alpha = $ENV{ALPHA_INSTALL} // '';
 
 if ($alpha eq 'true') {
     # Serve the message from the local data file
-    my $local_msg = '/opt/hamclock-backend/data/sysmsg.txt';
+    my $local_msg = '/opt/hamclock-backend/data/msg/sysmsg.txt';
     print "Content-Type: text/plain\r\n\r\n";
     if (-f $local_msg && open(my $fh, '<', $local_msg)) {
         print while <$fh>;
