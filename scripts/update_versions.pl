@@ -31,6 +31,8 @@ my $tags_url   = "https://api.github.com/repos/$owner/$repo/tags";
 my $v3_ver     = "3.10";  # Hardcoded legacy version support
 my $host_hostname = $ENV{'HOST_HOSTNAME'} // $ENV{'HOSTNAME'} // 'ohb.hamclock.app';
 
+my $total_failures = 0;
+
 mkdir $cache_dir unless -d $cache_dir;
 mkdir $tmp_dir unless -d $tmp_dir;
 
@@ -40,14 +42,36 @@ $ua->agent("Version-Cache-Updater/1.0");
 
 # Helper for retriable file downloads
 sub get_file_with_retry {
-    my ($ua, $url, $path) = @_;
+    my ($ua, $url, $path, $expected_sha) = @_;
     my $resp;
     for (my $i = 1; $i <= 3; $i++) {
         $resp = $ua->get($url, ':content_file' => $path);
-        return $resp if $resp->is_success;
 
-        print "  Warning: Attempt $i to download $url failed: " . $resp->status_line . "\n";
+        if ($resp->is_success) {
+            if ($expected_sha) {
+                my $clean_sha = $expected_sha;
+                $clean_sha =~ s/^sha256://;
+                my $sha = Digest::SHA->new(256);
+                $sha->addfile($path);
+                if ($sha->hexdigest eq $clean_sha) {
+                    return $resp;
+                }
+                print "  Warning: SHA256 mismatch for $url on attempt $i. Retrying...\n";
+                unlink $path;
+            } else {
+                return $resp;
+            }
+        } else {
+            print "  Warning: Attempt $i to download $url failed: " . $resp->status_line . "\n";
+            unlink $path if -f $path;
+            last if $resp->code == 404;
+        }
         sleep(2 * $i) if $i < 3;
+    }
+    # If SHA mismatch happened on final attempt, ensure response indicates failure
+    if ($resp->is_success && $expected_sha && !-f $path) {
+        $resp->code(500);
+        $resp->message("SHA256 mismatch after retries");
     }
     return $resp;
 }
@@ -172,11 +196,12 @@ foreach my $item (
     my $zip_url = "https://github.com/$owner/$repo/releases/download/$orig_ver/$zip_filename";
 
     print "Update found! Downloading $item->{type} asset from $zip_url...\n";
-    my $zip_resp = get_file_with_retry($ua, $zip_url, $zip_path);
+    my $zip_resp = get_file_with_retry($ua, $zip_url, $zip_path, $zip_digest);
 
     if ($zip_resp->is_success) {
         chmod 0644, $zip_path;
         unless (verify_and_cleanup($zip_path, $zip_digest, [$txt_file, $tag_file])) {
+            $total_failures++;
             next;
         }
         print "Successfully saved and verified $zip_path\n";
@@ -202,6 +227,7 @@ foreach my $item (
         }
     } else {
         print "Error: Failed to download $zip_filename. Status: " . $zip_resp->status_line . "\n";
+        $total_failures++ if $zip_resp->code != 404;
         next;
     }
 
@@ -215,12 +241,15 @@ foreach my $item (
         my $bin_digest = $bin_asset->{digest} // "";
 
         print "Downloading additional binary asset from $bin_url...\n";
-        my $bin_resp = get_file_with_retry($ua, $bin_url, $bin_path);
+        my $bin_resp = get_file_with_retry($ua, $bin_url, $bin_path, $bin_digest);
         if ($bin_resp->is_success) {
             chmod 0644, $bin_path;
-            verify_and_cleanup($bin_path, $bin_digest, [$txt_file, $tag_file, $zip_path, $zip_sha_path]);
+            unless (verify_and_cleanup($bin_path, $bin_digest, [$txt_file, $tag_file, $zip_path, $zip_sha_path])) {
+                $total_failures++;
+            }
         } else {
-            print "Error: Failed to download $bin_filename.\n";
+            print "Error: Failed to download $bin_filename. Status: " . $bin_resp->status_line . "\n";
+            $total_failures++ if $bin_resp->code != 404;
         }
     }
 
@@ -275,6 +304,7 @@ if ($sha_resp->is_success) {
     if ($current_sha ne $old_sha || !-f $main_zip_path) {
         print "Main branch update found (SHA: $current_sha). Downloading...\n";
         my $zip_resp = get_file_with_retry($ua, $main_zip_url, $main_zip_path);
+
         if ($zip_resp->is_success) {
             # Extract only the ESPHamClock folder from the main repo zip
             my $repo_root = "hamclock-main";
@@ -300,8 +330,13 @@ if ($sha_resp->is_success) {
             close($shafh);
             chmod 0644, $main_zip_path;
             print "Success: Processed main branch into ESPHamClock-only zip\n";
+        } else {
+            print "Error: Failed to download $main_zip_name. Status: " . $zip_resp->status_line . "\n";
+            $total_failures++ if $zip_resp->code != 404;
         }
     } else {
         print "Main branch is up to date.\n";
     }
 }
+
+exit($total_failures);
