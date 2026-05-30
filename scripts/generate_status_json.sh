@@ -47,16 +47,16 @@ THRESH_DRAP_WIND="${THRESH_DRAP_WIND:-600 1200 3600}"
 THRESH_XRAY="${THRESH_XRAY:-300 600 1800}"
 THRESH_AURORA="${THRESH_AURORA:-1800 3600 7200}"
 THRESH_SDO_SPACE="${THRESH_SDO_SPACE:-3600 7200 14400}"
-THRESH_SSN="${THRESH_SSN:-7200 14400 28800}" # 1d 2d 3d
+THRESH_SSN="${THRESH_SSN:-7200 14400 28800}" # 2h 4h 8h
 THRESH_SSN_HISTORY="${THRESH_SSN_HISTORY:-86400 172800 259200}" # 1d 2d 3d
 THRESH_ESATS="${THRESH_ESATS:-3600 7200 14400}"
 THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
 THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_MAP="${THRESH_MAP:-3600 7200 14400}"
-THRESH_DEFAULT="${THRESH_DEFAULT:-3600 7200 14400}"
 THRESH_CLOUDS="${THRESH_CLOUDS:-3600 7200 14400}"
 THRESH_WX_MAP="${THRESH_WX_MAP:-3600 7200 14400}"
 THRESH_SOLAR_HISTORY="${THRESH_SOLAR_HISTORY:-2592000 5184000 7776000}" # 30d 60d 90d
+THRESH_DEFAULT="${THRESH_DEFAULT:-3600 7200 14400}"
 
 if [ -r "$STATUS_SETTINGS_CONF" ]; then
     source "$STATUS_SETTINGS_CONF"
@@ -124,11 +124,11 @@ get_thresholds() {
             echo "$THRESH_WX_MAP"
             return
             ;;
-        solarflux-history*)
+        solarflux-history.txt)
             echo "$THRESH_SOLAR_HISTORY"
             return
             ;;
-        ssn-history*)
+        ssn-history.txt)
             echo "$THRESH_SSN_HISTORY"
             return
             ;;
@@ -142,7 +142,6 @@ get_thresholds() {
         aurora)                                echo "$THRESH_AURORA"     ;;
         NOAASpaceWX|dst|geomag|solar-flux|SDO) echo "$THRESH_SDO_SPACE"  ;;
         ssn)                                   echo "$THRESH_SSN"        ;;
-        ssn-history)                           echo "$THRESH_SSN_HISTORY";;
         esats)                                 echo "$THRESH_ESATS"      ;;
         contests)                              echo "$THRESH_CONTESTS"   ;;
         cty|dxpeds)                            echo "$THRESH_CTY_DX"     ;;
