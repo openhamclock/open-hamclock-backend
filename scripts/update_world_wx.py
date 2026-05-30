@@ -164,7 +164,7 @@ def write_json_atomic(path, obj):
         os.chmod(path, 0o644)
     except Exception as exc:
         print(f"WARN: could not write {path}: {exc}", file=sys.stderr)
-        if os.path.exists(tmp):
+        try:
             os.unlink(tmp)
         except OSError:
             pass
