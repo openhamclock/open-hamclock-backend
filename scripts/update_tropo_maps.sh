@@ -54,7 +54,8 @@ if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
     exit 0
 fi
 
-export GMT_USERDIR=/opt/hamclock-backend/tmp
+export GMT_USERDIR=/opt/hamclock-backend/htdocs/tmp
+mkdir -p "$GMT_USERDIR"
 cd "$GMT_USERDIR"
 
 source "/opt/hamclock-backend/scripts/lib_sizes.sh"
@@ -74,7 +75,7 @@ import datetime, sys
 
 AVAILABILITY_DELAY_H = 5.0   # hours after run time before files are reliably up
 
-now = datetime.datetime.utcnow()
+now = datetime.datetime.now(datetime.timezone.utc)
 candidates = []
 
 # Check today and yesterday to cover the 00Z rollover
@@ -308,7 +309,12 @@ render_one() {
     local H=${SZ#*x}
     local BASE="$GMT_USERDIR/tropo_${DN}_${SZ}"
     local PNG="${BASE}.png"
-    local BMP="$OUTDIR/map-${DN}-${SZ}-Tropo.bmp"
+
+    # Prepare temporary paths on the same filesystem for atomic moves
+    local T_BMP="${BASE}.bmp"
+    local T_Z="${T_BMP}.z"
+    local F_BMP="$OUTDIR/map-${DN}-${SZ}-Tropo.bmp"
+    local F_Z="${F_BMP}.z"
 
     echo "  -> ${DN} ${SZ}"
 
@@ -319,10 +325,15 @@ render_one() {
         gmt coast  -R-180/180/-90/90 -B0 -JQ0/${W}p -W0.5p,white -N1/0.4p,white -A10000
     gmt end || { echo "  !! gmt failed for ${DN} ${SZ}"; return 1; }
 
-    make_bmp_v4_rgb565_topdown "$PNG" "$BMP" "$W" "$H" "$DN" \
+    make_bmp_v4_rgb565_topdown "$PNG" "$T_BMP" "$W" "$H" "$DN" \
         || { echo "  !! bmp write failed for ${DN} ${SZ}"; return 1; }
 
-    zlib_compress "$BMP" "${BMP}.z"
+    zlib_compress "$T_BMP" "$T_Z"
+
+    # Atomic move into the web-accessible space
+    mv "$T_BMP" "$F_BMP"
+    mv "$T_Z" "$F_Z"
+
     rm -f "$PNG"
 }
 

@@ -24,6 +24,8 @@ if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
 fi
 
 OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
+TMPROOT="/opt/hamclock-backend/htdocs/tmp"
+mkdir -p "$TMPROOT"
 
 # Load unified size list
 # shellcheck source=/dev/null
@@ -38,14 +40,14 @@ PATTERN='^linear_rgb_cyl_[0-9]{8}_[0-9]{4}\.jpg$'
 NIGHT_MULT="${NIGHT_MULT:-0.39}"
 NIGHT_ADD="${NIGHT_ADD:-8}"
 
-TMPDIR="$(mktemp -d)"
+TMPDIR="$TMPROOT/clouds_$(date +%s)"
+mkdir -p "$TMPDIR"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: missing command: $1" >&2; exit 1; }; }
 need curl
 need convert
 need python3
-need install
 
 log() { printf '%s %s\n' "$(date '+%F %T%z')" "$*"; }
 
@@ -207,15 +209,20 @@ for wh in "${SIZES[@]}"; do
 
     day_bmp_tmp="$TMPDIR/map-D-${W}x${H}-Clouds.bmp"
     night_bmp_tmp="$TMPDIR/map-N-${W}x${H}-Clouds.bmp"
+    day_z_tmp="${day_bmp_tmp}.z"
+    night_z_tmp="${night_bmp_tmp}.z"
 
     make_bmp_v4_rgb565_topdown "$day_raw"   "$day_bmp_tmp"   "$W" "$H"
     make_bmp_v4_rgb565_topdown "$night_raw" "$night_bmp_tmp" "$W" "$H"
 
-    install -m 0644 "$day_bmp_tmp"   "$OUTDIR/map-D-${W}x${H}-Clouds.bmp"
-    install -m 0644 "$night_bmp_tmp" "$OUTDIR/map-N-${W}x${H}-Clouds.bmp"
+    zlib_compress "$day_bmp_tmp" "$day_z_tmp"
+    zlib_compress "$night_bmp_tmp" "$night_z_tmp"
 
-    zlib_compress "$OUTDIR/map-D-${W}x${H}-Clouds.bmp" "$OUTDIR/map-D-${W}x${H}-Clouds.bmp.z"
-    zlib_compress "$OUTDIR/map-N-${W}x${H}-Clouds.bmp" "$OUTDIR/map-N-${W}x${H}-Clouds.bmp.z"
+    mv "$day_bmp_tmp"   "$OUTDIR/map-D-${W}x${H}-Clouds.bmp"
+    mv "$day_z_tmp"     "$OUTDIR/map-D-${W}x${H}-Clouds.bmp.z"
+    mv "$night_bmp_tmp" "$OUTDIR/map-N-${W}x${H}-Clouds.bmp"
+    mv "$night_z_tmp"   "$OUTDIR/map-N-${W}x${H}-Clouds.bmp.z"
+    chmod 0644 "$OUTDIR"/map-*-"${W}x${H}"-Clouds.bmp*
 
     # Verify outputs exist and are non-empty
     day_out_bmp="$OUTDIR/map-D-${W}x${H}-Clouds.bmp"

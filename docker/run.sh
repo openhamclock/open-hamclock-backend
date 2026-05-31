@@ -26,10 +26,16 @@ printenv | grep ^PROXY_MAPS= >> /etc/environment
 echo "Preparing for pskr ..."
 mkdir -p /opt/hamclock-backend/htdocs/pskr
 chown $PSKR_UID /opt/hamclock-backend/htdocs/pskr
+chmod 700 /opt/hamclock-backend/htdocs/pskr
 
 echo "Preparing for wspr ..."
 mkdir -p /opt/hamclock-backend/htdocs/wspr
 chown $WSPR_UID /opt/hamclock-backend/htdocs/wspr
+chmod 700 /opt/hamclock-backend/htdocs/wspr
+
+# tmp in same fs for atomic moves
+mkdir -p /opt/hamclock-backend/htdocs/tmp
+chown www-data /opt/hamclock-backend/htdocs/tmp
 
 # migrating to a new home
 mkdir -p /opt/hamclock-backend/htdocs/state

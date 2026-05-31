@@ -35,7 +35,8 @@ if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
     exit 0
 fi
 
-export GMT_USERDIR=/opt/hamclock-backend/tmp
+export GMT_USERDIR=/opt/hamclock-backend/htdocs/tmp
+mkdir -p "$GMT_USERDIR"
 cd $GMT_USERDIR
 
 source "/opt/hamclock-backend/scripts/lib_sizes.sh"
@@ -166,8 +167,8 @@ with open('aurora_D.cpt', 'w') as f:
 PYEOF
 
 make_bmp_v4_rgb565_topdown() {
-  local inraw="$1" outbmp="$2" W="$3" H="$4"
-  python3 - <<'PY' "$inraw" "$outbmp" "$W" "$H"
+    local inraw="$1" outbmp="$2" W="$3" H="$4"
+    python3 - <<'PY' "$inraw" "$outbmp" "$W" "$H"
 import struct, sys
 inraw, outbmp, W, H = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 raw = open(inraw, "rb").read()
@@ -199,8 +200,8 @@ PY
 }
 
 zlib_compress() {
-  local in="$1" out="$2"
-  python3 -c "
+    local in="$1" out="$2"
+    python3 -c "
 import zlib, sys
 data = open(sys.argv[1], 'rb').read()
 open(sys.argv[2], 'wb').write(zlib.compress(data, 9))
@@ -214,11 +215,11 @@ export MAGICK_LIMIT_MEMORY=2048MB
 export MAGICK_LIMIT_MAP=4096MB
 export MAGICK_LIMIT_DISK=8192MB
 im_convert() {
-  convert \
-    -limit width  65536 -limit height 65536 \
-    -limit area   4096MB -limit memory 2048MB \
-    -limit map    4096MB -limit disk   8192MB \
-    "$@"
+    convert \
+        -limit width  65536 -limit height 65536 \
+        -limit area   4096MB -limit memory 2048MB \
+        -limit map    4096MB -limit disk   8192MB \
+        "$@"
 }
 
 echo "Rendering maps..."
@@ -227,71 +228,78 @@ OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
 mkdir -p "$OUTDIR"
 
 for DN in D N; do
-for SZ in "${SIZES[@]}"; do
-  BASE="$GMT_USERDIR/aurora_${DN}_${SZ}"
-  PNG="${BASE}.png"
-  PNG_FIXED="${BASE}_fixed.png"
-  BMP="$OUTDIR/map-${DN}-${SZ}-Aurora.bmp"
+    for SZ in "${SIZES[@]}"; do
+        BASE="$GMT_USERDIR/aurora_${DN}_${SZ}"
+        PNG="${BASE}.png"
+        PNG_FIXED="${BASE}_fixed.png"
 
-  W=${SZ%x*}
-  H=${SZ#*x}
-  MAX_RENDER=7000
-  if (( W * 2 > MAX_RENDER )); then
-    RENDER_W=$W; RENDER_H=$H
-  else
-    RENDER_W=$((W * 2)); RENDER_H=$((H * 2))
-  fi
+        # Prepare temporary paths on the same filesystem for atomic moves
+        T_BMP="${BASE}.bmp"
+        T_Z="${T_BMP}.z"
+        F_BMP="$OUTDIR/map-${DN}-${SZ}-Aurora.bmp"
+        F_Z="${F_BMP}.z"
 
-  echo "  -> ${DN} ${SZ}"
+        W=${SZ%x*}
+        H=${SZ#*x}
+        MAX_RENDER=7000
+        if (( W * 2 > MAX_RENDER )); then
+            RENDER_W=$W; RENDER_H=$H
+        else
+            RENDER_W=$((W * 2)); RENDER_H=$((H * 2))
+        fi
 
-  if [[ "$DN" == "D" ]]; then
-    FILL="74/73/74"
-  else
-    FILL="0/0/0"
-  fi
+        echo "  -> ${DN} ${SZ}"
 
-  PS="${BASE}.ps"
-  W_cm=$(awk "BEGIN{printf \"%.4f\", $RENDER_W * 2.54 / 72}")
-  H_cm=$(awk "BEGIN{printf \"%.4f\", $RENDER_H * 2.54 / 72}")
-  GMT_CONF="$GMT_USERDIR/gmtconf_aurora_${DN}_${SZ}"
-  mkdir -p "$GMT_CONF"
-  GMT_USERDIR="$GMT_CONF" gmt set \
-    PS_MEDIA "${W_cm}cx${H_cm}c" \
-    MAP_ORIGIN_X 0c \
-    MAP_ORIGIN_Y 0c
+        if [[ "$DN" == "D" ]]; then
+            FILL="74/73/74"
+        else
+            FILL="0/0/0"
+        fi
 
-  (
-    cd "$GMT_USERDIR" || exit 1
-    GMT_USERDIR="$GMT_CONF" \
-    gmt pscoast -R-180/180/-90/90 -JQ0/${RENDER_W}p \
-      -G${FILL} -S${FILL} -A10000 --MAP_FRAME_AXES= -P -K > "$PS"
-    GMT_USERDIR="$GMT_CONF" \
-    gmt grdimage aurora_clipped.nc -R-180/180/-90/90 -JQ0/${RENDER_W}p \
-      -Caurora_${DN}.cpt -Q -n+b --MAP_FRAME_AXES= -O -K >> "$PS"
-    GMT_USERDIR="$GMT_CONF" \
-    gmt pscoast -R-180/180/-90/90 -JQ0/${RENDER_W}p \
-      -W1.25p,white -N1/1.10p,white -A10000 --MAP_FRAME_AXES= -O -K >> "$PS"
-    gmt psxy -R -J -T -O >> "$PS"
-    gs -dBATCH -dNOPAUSE -dSAFER -dQUIET \
-       -sDEVICE=png16m -r72 \
-       -dDEVICEWIDTHPOINTS=${RENDER_W} -dDEVICEHEIGHTPOINTS=${RENDER_H} \
-       -sOutputFile="$PNG" "$PS"
-  ) || { echo "gmt/gs failed for ${DN} $SZ" >&2; continue; }
+        PS="${BASE}.ps"
+        W_cm=$(awk "BEGIN{printf \"%.4f\", $RENDER_W * 2.54 / 72}")
+        H_cm=$(awk "BEGIN{printf \"%.4f\", $RENDER_H * 2.54 / 72}")
+        GMT_CONF="$GMT_USERDIR/gmtconf_aurora_${DN}_${SZ}"
+        mkdir -p "$GMT_CONF"
+        GMT_USERDIR="$GMT_CONF" gmt set \
+            PS_MEDIA "${W_cm}cx${H_cm}c" \
+            MAP_ORIGIN_X 0c \
+            MAP_ORIGIN_Y 0c
 
-  im_convert "$PNG" -filter Lanczos -resize "${SZ}!" "$PNG_FIXED" \
-    || { echo "resize failed for $SZ"; continue; }
+        (
+            cd "$GMT_USERDIR" || exit 1
+            GMT_USERDIR="$GMT_CONF" \
+            gmt pscoast -R-180/180/-90/90 -JQ0/${RENDER_W}p \
+                -G${FILL} -S${FILL} -A10000 --MAP_FRAME_AXES= -P -K > "$PS"
+            GMT_USERDIR="$GMT_CONF" \
+            gmt grdimage aurora_clipped.nc -R-180/180/-90/90 -JQ0/${RENDER_W}p \
+                -Caurora_${DN}.cpt -Q -n+b --MAP_FRAME_AXES= -O -K >> "$PS"
+            GMT_USERDIR="$GMT_CONF" \
+            gmt pscoast -R-180/180/-90/90 -JQ0/${RENDER_W}p \
+                -W1.25p,white -N1/1.10p,white -A10000 --MAP_FRAME_AXES= -O -K >> "$PS"
+            gmt psxy -R -J -T -O >> "$PS"
+            gs -dBATCH -dNOPAUSE -dSAFER -dQUIET \
+                -sDEVICE=png16m -r72 \
+                -dDEVICEWIDTHPOINTS=${RENDER_W} -dDEVICEHEIGHTPOINTS=${RENDER_H} \
+                -sOutputFile="$PNG" "$PS"
+        ) || { echo "gmt/gs failed for ${DN} $SZ" >&2; continue; }
 
-  RAW="$GMT_USERDIR/aurora_${DN}_${SZ}.raw"
-  im_convert "$PNG_FIXED" RGB:"$RAW" || { echo "raw extract failed for $SZ"; continue; }
-  make_bmp_v4_rgb565_topdown "$RAW" "$BMP" "$W" "$H" \
-    || { echo "bmp write failed for $SZ"; continue; }
-  rm -f "$RAW" "$PNG" "$PNG_FIXED" "$PS"
+        im_convert "$PNG" -filter Lanczos -resize "${SZ}!" "$PNG_FIXED" \
+            || { echo "resize failed for $SZ"; continue; }
 
-  zlib_compress "$BMP" "${BMP}.z"
-  chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+        RAW="$GMT_USERDIR/aurora_${DN}_${SZ}.raw"
+        im_convert "$PNG_FIXED" RGB:"$RAW" || { echo "raw extract failed for $SZ"; continue; }
+        make_bmp_v4_rgb565_topdown "$RAW" "$T_BMP" "$W" "$H" \
+            || { echo "bmp write failed for $SZ"; continue; }
+        rm -f "$RAW" "$PNG" "$PNG_FIXED" "$PS"
 
-  echo "  -> Done: $BMP"
-done
+        zlib_compress "$T_BMP" "$T_Z"
+        mv "$T_BMP" "$F_BMP"
+        mv "$T_Z" "$F_Z"
+        chmod 0644 "$F_BMP" "$F_Z" 2>/dev/null || true
+
+        echo "  -> Done: $BMP"
+    done
 done
 
 rm -f aurora_raw.nc aurora_preclip.nc aurora.nc aurora_clipped.nc \
