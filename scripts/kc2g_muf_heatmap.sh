@@ -45,8 +45,28 @@ curl -fsSL "$STAS_URL" -o stations.json
 python3 - << 'PYEOF'
 import json, sys
 import numpy as np
+from datetime import datetime, timezone
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter
+
+# Keep calibration in sync with the markers: only recent observations feed the
+# percentile stretch, otherwise stale MUF values distort the color scaling.
+MAX_AGE_MINUTES = 60
+MIN_CS = 25.0   # cs >= 25, or cs == -1 (no scoring) -- matches KC2G's renderer
+
+def _parse_time(t):
+    if not t:
+        return None
+    t = t.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(t)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+_now = datetime.now(timezone.utc)
 
 gj   = json.load(open("mufd.geojson"))
 stas = json.load(open("stations.json"))
@@ -64,12 +84,19 @@ for feat in gj["features"]:
 pts = np.array(pts)
 print(f"  Contour levels: {sorted(set(pts[:,2]))}", file=sys.stderr)
 
-# Station range for stretch calibration
+# Station range for stretch calibration (recent observations only)
 sta_mufd = []
 for row in stas:
     mufd = row.get("mufd") or row.get("muf")
-    conf = float(row.get("confidence", 1.0) or 1.0)
-    if mufd is None or conf < 0.1: continue
+    if mufd is None: continue
+    ts = _parse_time(row.get("time"))
+    if ts is None: continue
+    if (_now - ts).total_seconds() / 60.0 > MAX_AGE_MINUTES: continue
+    try:
+        cs = float(row.get("cs"))
+    except (TypeError, ValueError):
+        cs = -1.0
+    if 0.0 <= cs < MIN_CS: continue
     sta_mufd.append(float(mufd))
 sta_mufd = np.array(sta_mufd)
 sta_lo = max(5.0,  np.percentile(sta_mufd,  5))
@@ -107,25 +134,69 @@ echo "  Grid: $(gmt grdinfo mufd.grd -C | awk '{print $6, "-", $7, "MHz"}')"
 # ── 3. Station files (once) ────────────────────────────────────────────────────
 python3 - << 'PYEOF'
 import json, sys
+from datetime import datetime, timezone
+
+# Drop observations older than this. stations.json keeps the LAST reading for
+# every station ever, so dead stations carry MUF values that are years old.
+# KC2G's "current" render is built from very recent data; bump this to 90-120
+# if the map ends up too sparse for your liking.
+MAX_AGE_MINUTES = 60
+# Confidence floor. The field is "cs" (GIRO C-score, 0-100), NOT "confidence".
+# KC2G's own renderer keeps observations with cs >= 25, OR cs == -1 (meaning
+# the ionosonde doesn't do confidence scoring). Matching that here.
+MIN_CS = 25.0
+
+def parse_time(t):
+    if not t:
+        return None
+    t = t.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(t)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:          # naive timestamps are UTC
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+now = datetime.now(timezone.utc)
+
 with open("stations.json") as fh:
     data = json.load(fh)
+
 circles, labels = [], []
+kept = stale = other = 0
 for row in data:
     st   = row.get("station", {})
     lon  = st.get("longitude")
     lat  = st.get("latitude")
     mufd = row.get("mufd") or row.get("muf")
-    conf = float(row.get("confidence", 1.0) or 1.0)
-    if lon is None or lat is None or mufd is None: continue
-    if float(conf) < 0.05: continue
-    mufd = float(mufd)
-    circles.append(f"{float(lon):.3f}\t{float(lat):.3f}\t{mufd:.2f}")
-    labels.append( f"{float(lon):.3f}\t{float(lat):.3f}\t{mufd:.0f}")
+    if lon is None or lat is None or mufd is None:
+        other += 1; continue
+
+    ts = parse_time(row.get("time"))
+    if ts is None:
+        other += 1; continue
+    if (now - ts).total_seconds() / 60.0 > MAX_AGE_MINUTES:
+        stale += 1; continue
+
+    try:
+        cs = float(row.get("cs"))
+    except (TypeError, ValueError):
+        cs = -1.0
+    if 0.0 <= cs < MIN_CS:         # scored but essentially no confidence
+        other += 1; continue
+
+    lon = float(lon); lat = float(lat); mufd = float(mufd)
+    circles.append(f"{lon:.3f}\t{lat:.3f}\t{mufd:.2f}")
+    labels.append( f"{lon:.3f}\t{lat:.3f}\t{mufd:.0f}")
+    kept += 1
+
 with open("stations_circles.txt", "w") as f:
     f.write("\n".join(circles) + "\n")
 with open("stations_labels.txt", "w") as f:
     f.write("\n".join(labels) + "\n")
-print(f"  {len(circles)} stations", file=sys.stderr)
+print(f"  {kept} stations kept | {stale} dropped (older than {MAX_AGE_MINUTES} min) "
+      f"| {other} dropped (missing/low-cs)", file=sys.stderr)
 PYEOF
 
 # ── 4. Render each DN variant × size ──────────────────────────────────────────
