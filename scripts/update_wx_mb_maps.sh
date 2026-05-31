@@ -25,11 +25,11 @@ fi
 
 export LC_ALL=C
 
-export GMT_USERDIR=/opt/hamclock-backend/tmp
-cd "$GMT_USERDIR"
-
 OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
-TMPROOT="/opt/hamclock-backend/tmp"
+TMPROOT="/opt/hamclock-backend/htdocs/tmp"
+mkdir -p "$TMPROOT"
+export GMT_USERDIR="$TMPROOT"
+cd "$GMT_USERDIR"
 export MPLCONFIGDIR="$TMPROOT/mpl"
 
 RENDER_PY="/opt/hamclock-backend/scripts/render_wx_mb_map.py"
@@ -231,10 +231,10 @@ make_wx_line_overlay_png() {
 # map_type is e.g. "Wx-mB" or "Wx-in".
 # ---------------------------------------------------------------------------
 boost_day_wx_brightness() {
-  local W="$1" H="$2" map_type="$3"
+  local W="$1" H="$2" map_type="$3" tmpdir="$4"
 
-  local in_bmp="$OUTDIR/map-D-${W}x${H}-${map_type}.bmp"
-  local out_z="$OUTDIR/map-D-${W}x${H}-${map_type}.bmp.z"
+  local in_bmp="$tmpdir/map-D-${W}x${H}-${map_type}.bmp"
+  local out_z="${in_bmp}.z"
   local stem="$TMPDIR/wxbright_D_${W}x${H}_${map_type}"
   local png="${stem}.png"
   local png_out="${stem}_out.png"
@@ -274,10 +274,10 @@ PY
 # The line overlay PNG is built once per size and reused across map types.
 # ---------------------------------------------------------------------------
 overlay_black_borders_on_wx_output() {
-  local tag="$1" W="$2" H="$3" map_type="$4"
+  local tag="$1" W="$2" H="$3" map_type="$4" tmpdir="$5"
 
-  local in_bmp="$OUTDIR/map-${tag}-${W}x${H}-${map_type}.bmp"
-  local out_z="$OUTDIR/map-${tag}-${W}x${H}-${map_type}.bmp.z"
+  local in_bmp="$tmpdir/map-${tag}-${W}x${H}-${map_type}.bmp"
+  local out_z="${in_bmp}.z"
   # Shared line overlay per size (built once, reused for both Wx-mB and Wx-in)
   local line_png="$TMPDIR/wxlines_${W}x${H}.png"
 
@@ -377,7 +377,7 @@ fi
 #   Wx-in  → inches Hg  (--units inches --map-type Wx-in)
 # ---------------------------------------------------------------------------
 render_one() {
-  local tag="$1" W="$2" H="$3" base="$4" map_type="$5" log_inventory="${6:-0}"
+  local tag="$1" W="$2" H="$3" base="$4" map_type="$5" tmpdir="$6" log_inventory="${7:-0}"
 
   local inv_flag=()
   [[ "$log_inventory" -eq 1 ]] && inv_flag=(--log-inventory)
@@ -390,7 +390,7 @@ render_one() {
   "$PYTHON_BIN" "$RENDER_PY" \
     --grib    "$TMPDIR/gfs.grb2" \
     --base    "$base" \
-    --outdir  "$OUTDIR" \
+    --outdir  "$tmpdir" \
     --tag     "$tag" \
     --width   "$W" \
     --height  "$H" \
@@ -419,37 +419,29 @@ for wh in "${SIZES[@]}"; do
 
     echo "Rendering ${map_type} Day ${W}x${H}"
     if [[ "$logged_inventory" -eq 0 ]]; then
-      render_one "D" "$W" "$H" "$WX_BASE" "$map_type" 1
+      render_one "D" "$W" "$H" "$WX_BASE" "$map_type" "$TMPDIR" 1
       logged_inventory=1
     else
-      render_one "D" "$W" "$H" "$WX_BASE" "$map_type" 0
+      render_one "D" "$W" "$H" "$WX_BASE" "$map_type" "$TMPDIR" 0
     fi
 
     echo "Boosting Day brightness for ${map_type} ${W}x${H}"
-    boost_day_wx_brightness "$W" "$H" "$map_type"
+    boost_day_wx_brightness "$W" "$H" "$map_type" "$TMPDIR"
 
     echo "Overlaying black borders on ${map_type} Day ${W}x${H}"
-    overlay_black_borders_on_wx_output "D" "$W" "$H" "$map_type"
+    overlay_black_borders_on_wx_output "D" "$W" "$H" "$map_type" "$TMPDIR"
 
     echo "--- ${map_type} Night ${W}x${H} ---"
 
     echo "Rendering ${map_type} Night ${W}x${H}"
-    render_one "N" "$W" "$H" "$WX_BASE" "$map_type" 0
+    render_one "N" "$W" "$H" "$WX_BASE" "$map_type" "$TMPDIR" 0
 
     echo "Overlaying black borders on ${map_type} Night ${W}x${H}"
-    overlay_black_borders_on_wx_output "N" "$W" "$H" "$map_type"
+    overlay_black_borders_on_wx_output "N" "$W" "$H" "$map_type" "$TMPDIR"
 
-    # Set permissions
-    chmod 0644 \
-      "$OUTDIR/map-D-${W}x${H}-${map_type}.bmp" \
-      "$OUTDIR/map-D-${W}x${H}-${map_type}.bmp.z" \
-      2>/dev/null || true
-
-    if [[ -f "$OUTDIR/map-N-${W}x${H}-${map_type}.bmp" ]]; then
-      chmod 0644 \
-        "$OUTDIR/map-N-${W}x${H}-${map_type}.bmp" \
-        "$OUTDIR/map-N-${W}x${H}-${map_type}.bmp.z"
-    fi
+    # Atomic move
+    mv "$TMPDIR"/map-*-"${W}x${H}"-"${map_type}".bmp* "$OUTDIR/"
+    chmod 0644 "$OUTDIR"/map-*-"${W}x${H}"-"${map_type}".bmp* 2>/dev/null || true
 
     echo "OK: ${map_type} maps ${W}x${H} complete"
   done

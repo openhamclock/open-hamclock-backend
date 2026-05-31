@@ -35,7 +35,8 @@ if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
     exit 0
 fi
 
-export GMT_USERDIR=/opt/hamclock-backend/tmp
+export GMT_USERDIR=/opt/hamclock-backend/htdocs/tmp
+mkdir -p "$GMT_USERDIR"
 cd $GMT_USERDIR
 
 source "/opt/hamclock-backend/scripts/lib_sizes.sh"
@@ -231,7 +232,12 @@ for SZ in "${SIZES[@]}"; do
   BASE="$GMT_USERDIR/aurora_${DN}_${SZ}"
   PNG="${BASE}.png"
   PNG_FIXED="${BASE}_fixed.png"
-  BMP="$OUTDIR/map-${DN}-${SZ}-Aurora.bmp"
+
+  # Prepare temporary paths on the same filesystem for atomic moves
+  T_BMP="${BASE}.bmp"
+  T_Z="${T_BMP}.z"
+  F_BMP="$OUTDIR/map-${DN}-${SZ}-Aurora.bmp"
+  F_Z="${F_BMP}.z"
 
   W=${SZ%x*}
   H=${SZ#*x}
@@ -283,12 +289,14 @@ for SZ in "${SIZES[@]}"; do
 
   RAW="$GMT_USERDIR/aurora_${DN}_${SZ}.raw"
   im_convert "$PNG_FIXED" RGB:"$RAW" || { echo "raw extract failed for $SZ"; continue; }
-  make_bmp_v4_rgb565_topdown "$RAW" "$BMP" "$W" "$H" \
+  make_bmp_v4_rgb565_topdown "$RAW" "$T_BMP" "$W" "$H" \
     || { echo "bmp write failed for $SZ"; continue; }
   rm -f "$RAW" "$PNG" "$PNG_FIXED" "$PS"
 
-  zlib_compress "$BMP" "${BMP}.z"
-  chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+  zlib_compress "$T_BMP" "$T_Z"
+  mv "$T_BMP" "$F_BMP"
+  mv "$T_Z" "$F_Z"
+  chmod 0644 "$F_BMP" "$F_Z" 2>/dev/null || true
 
   echo "  -> Done: $BMP"
 done

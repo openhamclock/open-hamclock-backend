@@ -35,7 +35,8 @@ if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
     exit 0
 fi
 
-export GMT_USERDIR=/opt/hamclock-backend/tmp
+export GMT_USERDIR=/opt/hamclock-backend/htdocs/tmp
+mkdir -p "$GMT_USERDIR"
 cd "$GMT_USERDIR"
 
 source "/opt/hamclock-backend/scripts/lib_sizes.sh"
@@ -210,7 +211,12 @@ render_one() {
   local H=${SZ#*x}
   local BASE="$GMT_USERDIR/drap_${DN}_${SZ}"
   local PNG="${BASE}.png"
-  local BMP="$OUTDIR/map-${DN}-${SZ}-DRAP-S.bmp"
+
+  # Prepare temporary paths on the same filesystem for atomic moves
+  local T_BMP="${BASE}.bmp"
+  local T_Z="${T_BMP}.z"
+  local F_BMP="$OUTDIR/map-${DN}-${SZ}-DRAP-S.bmp"
+  local F_Z="${F_BMP}.z"
 
   echo "  -> ${DN} ${SZ}"
 
@@ -228,10 +234,13 @@ render_one() {
   gmt end || { echo "  !! gmt failed for $DN $SZ"; return 1; }
 
   # Haze + resize + RGB565 BMP — all in one Pillow pass, no ImageMagick
-  make_bmp_v4_rgb565_topdown "$PNG" "$BMP" "$W" "$H" "$DN" \
+  make_bmp_v4_rgb565_topdown "$PNG" "$T_BMP" "$W" "$H" "$DN" \
     || { echo "  !! bmp write failed for $DN $SZ"; return 1; }
 
-  zlib_compress "$BMP" "${BMP}.z"
+  zlib_compress "$T_BMP" "$T_Z"
+
+  mv "$T_BMP" "$F_BMP"
+  mv "$T_Z" "$F_Z"
   rm -f "$PNG"
 }
 
