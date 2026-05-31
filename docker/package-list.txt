@@ -36,6 +36,7 @@ media-types
 python3
 python3-astropy
 python3-bs4
+python3-cfgrib
 python3-feedparser
 python3-grib
 python3-matplotlib
