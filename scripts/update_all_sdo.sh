@@ -68,34 +68,34 @@ PY
 }
 
 for entry in "${SOURCES[@]}"; do
-  IFS='|' read -r key url tmpl <<<"$entry"
+    IFS='|' read -r key url tmpl <<<"$entry"
 
-  jpg="$TMPDIR/${key}.jpg"
+    jpg="$TMPDIR/${key}.jpg"
 
-  echo "Fetching $key ..."
-  curl -fsS -A "open-hamclock-backend/1.0" --retry 2 --retry-delay 2 "$url" -o "$jpg"
-  if [ $? -ne 0 ]; then
-    echo "NASA source failed for $key. Trying alternate suntoday..."
-    curl -kfsS -A "open-hamclock-backend/1.0" --retry 2 --retry-delay 2 "$url" -o "$jpg" || continue
+    echo "Fetching $key ..."
+    curl -fsS -A "open-hamclock-backend/1.0" --retry 2 --retry-delay 2 "$url" -o "$jpg"
     if [ $? -ne 0 ]; then
-    	echo "Alternate suntoday source failed for $key. Moving on."
-		continue
+        echo "NASA source failed for $key. Trying alternate suntoday..."
+        curl -kfsS -A "open-hamclock-backend/1.0" --retry 2 --retry-delay 2 "$url" -o "$jpg" || continue
+        if [ $? -ne 0 ]; then
+            echo "Alternate suntoday source failed for $key. Moving on."
+            continue
+        fi
     fi
-  fi
 
-  for S in "${SIZES[@]}"; do
-    outbmp="${OUTDIR}/${tmpl/\{S\}/$S}"
-    outz="${outbmp}.z"
+    for S in "${SIZES[@]}"; do
+        outbmp="${OUTDIR}/${tmpl/\{S\}/$S}"
+        outz="${outbmp}.z"
 
-    convert "$jpg" \
-      -alpha off -type TrueColor \
-      -resize "${S}x${S}!" \
-      "BMP3:$outbmp"
+        convert "$jpg" \
+            -alpha off -type TrueColor \
+            -resize "${S}x${S}!" \
+            "BMP3:$outbmp"
 
-    verify_bmp "$outbmp"
-    zwrite "$outbmp" "$outz"
-    chmod 0644 "$outbmp" "$outz"
-  done
+        verify_bmp "$outbmp"
+        zwrite "$outbmp" "$outz"
+        chmod 0644 "$outbmp" "$outz"
+    done
 done
 
 echo "OK: SDO artifacts updated in $OUTDIR"

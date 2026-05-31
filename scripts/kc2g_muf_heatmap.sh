@@ -33,7 +33,7 @@ R="-180/180/-90/90"
 mkdir -p "$OUTDIR"
 
 if [[ ! -f "$CPT" ]]; then
-  echo "ERROR: $CPT not found" >&2; exit 1
+    echo "ERROR: $CPT not found" >&2; exit 1
 fi
 
 # ── 1. Fetch ───────────────────────────────────────────────────────────────────
@@ -203,56 +203,56 @@ PYEOF
 echo "Rendering maps..."
 
 for DN in D N; do
-for SZ in "${SIZES[@]}"; do
+    for SZ in "${SIZES[@]}"; do
 
-  W="${SZ%%x*}"
-  H="${SZ##*x}"
-  BASE="muf_${DN}_${SZ}"
-  PNG="${BASE}.png"
-  PNG_FIXED="${BASE}_fixed.png"
-  BMP="${BASE}.bmp"
-  OUTFILE="${OUTDIR}/map-${DN}-${SZ}-MUF-RT.bmp.z"
+        W="${SZ%%x*}"
+        H="${SZ##*x}"
+        BASE="muf_${DN}_${SZ}"
+        PNG="${BASE}.png"
+        PNG_FIXED="${BASE}_fixed.png"
+        BMP="${BASE}.bmp"
+        OUTFILE="${OUTDIR}/map-${DN}-${SZ}-MUF-RT.bmp.z"
 
-  echo "  -> ${DN} ${SZ}"
+        echo "  -> ${DN} ${SZ}"
 
-  # Scale marker/font/line sizes relative to 660px baseline
-  W_IN=$(echo "scale=4; $W / 100" | bc)
-  CIRCLE_IN=$(echo "scale=4; 0.15 * $W / 660" | bc)
-  FONT_PT=$(echo "scale=0; 6 * $W / 660" | bc)
-  COAST_PT=$(echo "scale=4; 0.6 * $W / 660" | bc)
-  BORDER_PT=$(echo "scale=4; 0.4 * $W / 660" | bc)
-  CONTOUR_PT=$(echo "scale=4; 0.5 * $W / 660" | bc)
-  J="Q0/${W_IN}i"
+        # Scale marker/font/line sizes relative to 660px baseline
+        W_IN=$(echo "scale=4; $W / 100" | bc)
+        CIRCLE_IN=$(echo "scale=4; 0.15 * $W / 660" | bc)
+        FONT_PT=$(echo "scale=0; 6 * $W / 660" | bc)
+        COAST_PT=$(echo "scale=4; 0.6 * $W / 660" | bc)
+        BORDER_PT=$(echo "scale=4; 0.4 * $W / 660" | bc)
+        CONTOUR_PT=$(echo "scale=4; 0.5 * $W / 660" | bc)
+        J="Q0/${W_IN}i"
 
-  gmt begin "$BASE" png E100
-    gmt set MAP_FRAME_TYPE=plain MAP_FRAME_WIDTH=0p MAP_FRAME_PEN=0p,white
-    # Black base
-    gmt coast -R${R} -J${J} -Gblack -Sblack -Dc --MAP_FRAME_PEN=0p
-    # MUF heatmap
-    gmt grdimage mufd.grd -R${R} -J${J} -C${CPT} -Q
-    # Day white veil (D maps only)
-    if [[ "$DN" == "D" ]]; then
-      gmt coast -R${R} -J${J} -Gwhite -Swhite -Dc -t80 --MAP_FRAME_PEN=0p
-    fi
-    # Coastlines + borders
-    gmt coast -R${R} -J${J} -W${COAST_PT}p,black -N1/${BORDER_PT}p,black -Dc
-    # Contour lines
-    gmt grdcontour mufd.grd -R${R} -J${J} -C2 -W${CONTOUR_PT}p,white@60 -S4
-    # Station circles + labels
-    gmt plot stations_circles.txt -R${R} -J${J} \
-        -Sc${CIRCLE_IN}i -G0/200/0 -W0.5p,black
-    gmt text stations_labels.txt  -R${R} -J${J} \
-        -F+f${FONT_PT}p,Helvetica-Bold,black+jCM
-  gmt end || { echo "    gmt failed for ${DN} ${SZ}"; continue; }
+        gmt begin "$BASE" png E100
+            gmt set MAP_FRAME_TYPE=plain MAP_FRAME_WIDTH=0p MAP_FRAME_PEN=0p,white
+            # Black base
+            gmt coast -R${R} -J${J} -Gblack -Sblack -Dc --MAP_FRAME_PEN=0p
+            # MUF heatmap
+            gmt grdimage mufd.grd -R${R} -J${J} -C${CPT} -Q
+            # Day white veil (D maps only)
+            if [[ "$DN" == "D" ]]; then
+                gmt coast -R${R} -J${J} -Gwhite -Swhite -Dc -t80 --MAP_FRAME_PEN=0p
+            fi
+            # Coastlines + borders
+            gmt coast -R${R} -J${J} -W${COAST_PT}p,black -N1/${BORDER_PT}p,black -Dc
+            # Contour lines
+            gmt grdcontour mufd.grd -R${R} -J${J} -C2 -W${CONTOUR_PT}p,white@60 -S4
+            # Station circles + labels
+            gmt plot stations_circles.txt -R${R} -J${J} \
+                -Sc${CIRCLE_IN}i -G0/200/0 -W0.5p,black
+            gmt text stations_labels.txt  -R${R} -J${J} \
+                -F+f${FONT_PT}p,Helvetica-Bold,black+jCM
+        gmt end || { echo "    gmt failed for ${DN} ${SZ}"; continue; }
 
-  # Resize to exact pixel dimensions
-  convert "$PNG" -resize "${SZ}!" "$PNG_FIXED" \
-    || { echo "    resize failed for ${DN} ${SZ}"; continue; }
+        # Resize to exact pixel dimensions
+        convert "$PNG" -resize "${SZ}!" "$PNG_FIXED" \
+            || { echo "    resize failed for ${DN} ${SZ}"; continue; }
 
-  # Extract raw RGB bytes, then write proper BMPv4 RGB565 top-down
-  RAW="${BASE}.raw"
-  convert "$PNG_FIXED" RGB:"$RAW" || { echo "    raw extract failed for ${DN} ${SZ}"; continue; }
-  python3 - << EOF
+        # Extract raw RGB bytes, then write proper BMPv4 RGB565 top-down
+        RAW="${BASE}.raw"
+        convert "$PNG_FIXED" RGB:"$RAW" || { echo "    raw extract failed for ${DN} ${SZ}"; continue; }
+        python3 - << EOF
 import struct, sys
 inraw, outbmp, W, H = "$RAW", "$BMP", int($W), int($H)
 
@@ -289,20 +289,20 @@ with open(outbmp, "wb") as f:
     f.write(v4hdr)
     f.write(pix)
 EOF
-  rm -f "$RAW" 
-  # Zlib compress → final output
-  python3 - << EOF
+        rm -f "$RAW"
+        # Zlib compress → final output
+        python3 - << EOF
 import zlib
 data = open("$BMP", "rb").read()
 open("${OUTFILE}", "wb").write(zlib.compress(data, 9))
 EOF
 
-  echo "    -> ${OUTFILE}"
+        echo "    -> ${OUTFILE}"
 
-  # Clean up intermediates for this size
-  rm -f "$PNG" "$PNG_FIXED" "$BMP"
+        # Clean up intermediates for this size
+        rm -f "$PNG" "$PNG_FIXED" "$BMP"
 
-done
+    done
 done
 
 # ── 5. Clean up shared intermediates ──────────────────────────────────────────

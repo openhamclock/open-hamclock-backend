@@ -135,8 +135,8 @@ N     0/0/0
 CPTEOF
 
 zlib_compress() {
-  local in="$1" out="$2"
-  python3 -c "
+    local in="$1" out="$2"
+    python3 -c "
 import zlib, sys
 data = open(sys.argv[1], 'rb').read()
 open(sys.argv[2], 'wb').write(zlib.compress(data, 9))
@@ -146,8 +146,8 @@ open(sys.argv[2], 'wb').write(zlib.compress(data, 9))
 # Combined: apply Day haze (if needed), resize, convert to BMPv4 RGB565 top-down.
 # Uses Pillow — no ImageMagick, no policy limits, no intermediate files.
 make_bmp_v4_rgb565_topdown() {
-  local inpng="$1" outbmp="$2" W="$3" H="$4" DN="$5"
-  python3 - <<'PY' "$inpng" "$outbmp" "$W" "$H" "$DN"
+    local inpng="$1" outbmp="$2" W="$3" H="$4" DN="$5"
+    python3 - <<'PY' "$inpng" "$outbmp" "$W" "$H" "$DN"
 import struct, sys
 from PIL import Image
 
@@ -206,52 +206,52 @@ PY
 echo "Rendering DRAP maps..."
 
 render_one() {
-  local DN="$1" SZ="$2"
-  local W=${SZ%x*}
-  local H=${SZ#*x}
-  local BASE="$GMT_USERDIR/drap_${DN}_${SZ}"
-  local PNG="${BASE}.png"
+    local DN="$1" SZ="$2"
+    local W=${SZ%x*}
+    local H=${SZ#*x}
+    local BASE="$GMT_USERDIR/drap_${DN}_${SZ}"
+    local PNG="${BASE}.png"
 
-  # Prepare temporary paths on the same filesystem for atomic moves
-  local T_BMP="${BASE}.bmp"
-  local T_Z="${T_BMP}.z"
-  local F_BMP="$OUTDIR/map-${DN}-${SZ}-DRAP-S.bmp"
-  local F_Z="${F_BMP}.z"
+    # Prepare temporary paths on the same filesystem for atomic moves
+    local T_BMP="${BASE}.bmp"
+    local T_Z="${T_BMP}.z"
+    local F_BMP="$OUTDIR/map-${DN}-${SZ}-DRAP-S.bmp"
+    local F_Z="${F_BMP}.z"
 
-  echo "  -> ${DN} ${SZ}"
+    echo "  -> ${DN} ${SZ}"
 
-  # Render at 72 DPI so 1 point = 1 pixel; -JQ0/${W}p produces exactly W pixels wide.
-  gmt begin "$BASE" png E72
-    gmt set MAP_FRAME_PEN 0p PS_PAGE_COLOR black
-    gmt coast -R-180/180/-90/90 -B0 -X0 -Y-0.5p -JQ0/${W}p -Gblack -Sblack -A10000
+    # Render at 72 DPI so 1 point = 1 pixel; -JQ0/${W}p produces exactly W pixels wide.
+    gmt begin "$BASE" png E72
+        gmt set MAP_FRAME_PEN 0p PS_PAGE_COLOR black
+        gmt coast -R-180/180/-90/90 -B0 -X0 -Y-0.5p -JQ0/${W}p -Gblack -Sblack -A10000
 
-    if [ "$NPTS" -gt 0 ]; then
-      gmt grdimage drap.nc -Cdrap.cpt -nn -t25
-    fi
+        if [ "$NPTS" -gt 0 ]; then
+            gmt grdimage drap.nc -Cdrap.cpt -nn -t25
+        fi
 
-    # White linework only (transparent interiors)
-    gmt coast -R-180/180/-90/90 -B0 -JQ0/${W}p -W0.5p,white -N1/0.4p,white -A10000
-  gmt end || { echo "  !! gmt failed for $DN $SZ"; return 1; }
+        # White linework only (transparent interiors)
+        gmt coast -R-180/180/-90/90 -B0 -JQ0/${W}p -W0.5p,white -N1/0.4p,white -A10000
+    gmt end || { echo "  !! gmt failed for $DN $SZ"; return 1; }
 
-  # Haze + resize + RGB565 BMP — all in one Pillow pass, no ImageMagick
-  make_bmp_v4_rgb565_topdown "$PNG" "$T_BMP" "$W" "$H" "$DN" \
-    || { echo "  !! bmp write failed for $DN $SZ"; return 1; }
+    # Haze + resize + RGB565 BMP — all in one Pillow pass, no ImageMagick
+    make_bmp_v4_rgb565_topdown "$PNG" "$T_BMP" "$W" "$H" "$DN" \
+        || { echo "  !! bmp write failed for $DN $SZ"; return 1; }
 
-  zlib_compress "$T_BMP" "$T_Z"
+    zlib_compress "$T_BMP" "$T_Z"
 
-  mv "$T_BMP" "$F_BMP"
-  mv "$T_Z" "$F_Z"
-  rm -f "$PNG"
+    mv "$T_BMP" "$F_BMP"
+    mv "$T_Z" "$F_Z"
+    rm -f "$PNG"
 }
 
 # Render D and N bands in parallel; sizes within each band are sequential
 # to avoid thrashing RAM on the Pi 3B.
 for DN in D N; do
-  (
-    for SZ in "${SIZES[@]}"; do
-      render_one "$DN" "$SZ"
-    done
-  ) &
+    (
+        for SZ in "${SIZES[@]}"; do
+            render_one "$DN" "$SZ"
+        done
+    ) &
 done
 wait
 
