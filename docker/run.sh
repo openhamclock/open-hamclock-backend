@@ -37,6 +37,9 @@ if [ -e /opt/hamclock-backend/htdocs/prime_crontabs.done ]; then
     mv /opt/hamclock-backend/htdocs/prime_crontabs.done /opt/hamclock-backend/htdocs/state
 fi
 
+# tmp in same fs for atomic moves
+mkdir -p /opt/hamclock-backend/htdocs/tmp
+
 echo "Syncing the initial, static directory structure ..."
 mkdir -p /opt/hamclock-backend/htdocs/ham
 cp -a /opt/hamclock-backend/ham/HamClock /opt/hamclock-backend/htdocs/ham
