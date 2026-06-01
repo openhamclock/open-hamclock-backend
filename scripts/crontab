@@ -114,6 +114,7 @@ LANG=C
 # maps
 10,40 * * * *  $SCRIPTS/cron-wrapper.sh $SCRIPTS/kc2g_muf_heatmap.sh
 20 */3 * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_cloud_maps.sh
+30 */3 * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_tropo_maps.sh
 */5 * * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_drap_maps.sh
 3,18,33,48 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_aurora_maps.sh
 0 2,8,14,20 * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_wx_mb_maps.sh
