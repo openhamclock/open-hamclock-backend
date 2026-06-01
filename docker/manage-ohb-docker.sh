@@ -1087,6 +1087,7 @@ services:
   pskr:
     container_name: pskr-mqtt-cache
     image: komacke/pskr-mqtt-cache:$PSKR_MQTT_CACHE_TAG
+    init: true
     restart: unless-stopped
     networks:
       - ohb
@@ -1107,6 +1108,7 @@ services:
   wspr-live-cache:
     container_name: wspr-live-cache
     image: komacke/wspr-live-cache:$WSPR_LIVE_CACHE_TAG
+    init: true
     restart: unless-stopped
     environment:
       WSPR_DB_PATH: /data/wspr-live-cache.sqlite3
