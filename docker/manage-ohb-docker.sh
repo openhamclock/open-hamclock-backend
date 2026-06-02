@@ -170,68 +170,128 @@ main() {
     fi
 }
 
+#OPTIONS a c e h l m p r s t v 
 get_compose_opts() {
-    while getopts ":a:c:e:h:l:m:p:r:s:t:v:" opt; do
-        case $opt in
-            a)
-                REQUESTED_ALPHA_INSTALL="$OPTARG"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -a)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_ALPHA_INSTALL="$2"
+                shift 2
                 ;;
-            c)
-                REQUESTED_CERT_PATH="$OPTARG"
+            -c)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_CERT_PATH="$2"
+                shift 2
                 ;;
-            e)
-                REQUESTED_ENV_FILE="$OPTARG"
+            -Co)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                OPT_CPU_SHARES_OHB="$2"
+                shift 2
                 ;;
-            h)
-                REQUESTED_HOST_HOSTNAME="$OPTARG"
+            -Cp)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                OPT_CPU_SHARES_PSKR="$2"
+                shift 2
                 ;;
-            l)
-                REQUESTED_EXTERNAL_HTTP_LOG="$OPTARG"
+            -Cv)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                OPT_CPU_SHARES_VOACAP="$2"
+                shift 2
+                ;;
+            -Cw)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                OPT_CPU_SHARES_WSPR="$2"
+                shift 2
+                ;;				
+            -e)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_ENV_FILE="$2"
+                shift 2
+                ;;
+            -h)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_HOST_HOSTNAME="$2"
+                shift 2
+                ;;
+            -l)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_EXTERNAL_HTTP_LOG="$2"
                 if [[ "$REQUESTED_EXTERNAL_HTTP_LOG" != "true" && "$REQUESTED_EXTERNAL_HTTP_LOG" != "false" ]]; then
-                    echo "ERROR: -$opt option must be <true|false>"
+                    echo "ERROR: $1 option must be <true|false>"
                     exit 1
                 fi
+                shift 2
                 ;;
-            m)
-                REQUESTED_PROXY_MAPS="$OPTARG"
+            -m)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_PROXY_MAPS="$2"
+                shift 2
                 ;;
-            r)
-                REQUESTED_MAP_SIZES="${OPTARG,,}"
+            -r)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_MAP_SIZES="${2,,}"
                 if [[ ! " ${SUPPORTED_MAP_SIZES[*]} " =~ " ${REQUESTED_MAP_SIZES} " ]]; then
-                    echo "ERROR: -$opt option must be one of:"
+                    echo "ERROR: $1 option must be one of:"
                     printf '    %s\n' "${SUPPORTED_MAP_SIZES[@]}"
                     exit 1
                 fi
+                shift 2
                 ;;
-            p)
-                REQUESTED_HTTP_PORT="$OPTARG"
+            -p)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_HTTP_PORT="$2"
+                shift 2
                 ;;
-            s)
-                REQUESTED_HTTPS_PORT="$OPTARG"
+            -s)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_HTTPS_PORT="$2"
+                shift 2
                 ;;
-            t)
-                REQUESTED_TAG="$OPTARG"
+            -t)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_TAG="$2"
+                shift 2
                 ;;
-            v)
-                REQUESTED_VOACAP_SERVICE_HOST="$OPTARG"
+            -v)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                REQUESTED_VOACAP_SERVICE_HOST="$2"
+                shift 2
                 ;;
-
-            \?) # Handle invalid options
-                echo "Command '$COMMAND': Invalid option: -$OPTARG" >&2
+            -Vo)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                echo "using OHB MANAGER VERSION=$2 instead of $OHB_MANAGER_VERSION"
+                OHB_MANAGER_VERSION="$2"
+                shift 2
+                ;;
+            -Vp)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                echo "using PSKR_MQTT_CACHE_TAG=$2 instead of $PSKR_MQTT_CACHE_TAG"
+                PSKR_MQTT_CACHE_TAG="$2"
+                shift 2
+                ;;
+            -Vv)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                echo "using VOACAP_SERVICE_TAG=$2 instead of $VOACAP_SERVICE_TAG"
+                VOACAP_SERVICE_TAG="$2"
+                shift 2
+                ;;
+            -Vw)
+                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
+                echo "using WSPR_LIVE_CACHE_TAG=$2 instead of $WSPR_LIVE_CACHE_TAG"
+                WSPR_LIVE_CACHE_TAG="$2"
+                shift 2
+                ;;              
+            -*)
+                echo "Command '$COMMAND': Invalid option: $1" >&2
                 exit 1
                 ;;
-            :) # Handle options requiring an argument but none provided
-                echo "Command '$COMMAND': Option -$OPTARG requires an argument." >&2
+            *)
+                echo "Command '$COMMAND': Invalid option(s): $@" >&2
                 exit 1
                 ;;
         esac
     done
-    shift $((OPTIND - 1))
-    if [ -n "$1" ]; then
-        echo "Command '$COMMAND': Invalid option(s): $@" >&2
-        exit 1
-    fi
-
     [ -z "$SAVE_STICKY_VARS" ] && SAVE_STICKY_VARS=true
 }
 
@@ -1048,6 +1108,10 @@ docker_compose_yml() {
 }
 
 docker_compose_yml_tmpl() {
+    CPUSHAREOHB=${OPT_CPU_SHARES_OHB:+"    cpu_shares: $OPT_CPU_SHARES_OHB"}
+	CPUSHAREVOACAP=${OPT_CPU_SHARES_VOACAP:+"    cpu_shares: $OPT_CPU_SHARES_VOACAP"}
+	CPUSHAREPSKR=${OPT_CPU_SHARES_PSKR:+"    cpu_shares: $OPT_CPU_SHARES_PSKR"}
+	CPUSHAREWSPR=${OPT_CPU_SHARES_WSPR:+"    cpu_shares: $OPT_CPU_SHARES_WSPR"}
     cat<<EOF
 name: $DOCKER_PROJECT
 services:
@@ -1055,6 +1119,7 @@ services:
     container_name: $CONTAINER
     image: $IMAGE
     restart: unless-stopped
+$CPUSHAREOHB
     environment:
       HOST_HOSTNAME: $HOST_HOSTNAME
       PSKR_UID: 1001
@@ -1089,6 +1154,7 @@ services:
     image: komacke/pskr-mqtt-cache:$PSKR_MQTT_CACHE_TAG
     init: true
     restart: unless-stopped
+$CPUSHAREPSKR	
     networks:
       - ohb
     volumes:
@@ -1110,6 +1176,7 @@ services:
     image: komacke/wspr-live-cache:$WSPR_LIVE_CACHE_TAG
     init: true
     restart: unless-stopped
+$CPUSHAREWSPR	
     environment:
       WSPR_DB_PATH: /data/wspr-live-cache.sqlite3
       WSPR_MAX_QUERY_AGE_SECONDS: 86400
@@ -1136,6 +1203,7 @@ services:
     image: komacke/voacap-service:$VOACAP_SERVICE_TAG
     container_name: voacap-service
     restart: unless-stopped
+$CPUSHAREVOACAP	
     environment:
       LOG_LEVEL: INFO
     networks:
