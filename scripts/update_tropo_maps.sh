@@ -196,6 +196,13 @@ N   = 77.6 * P_hPa / T_K + 3.73e5 * e / T_K**2         # N-units
 print(f"  N range: [{N.min():.1f}, {N.max():.1f}] N-units", file=sys.stderr)
 
 # ── Write XYZ for GMT (lon in −180..180) ─────────────────────────────────────
+#
+# GFS is gridline-registered at 0.25°, so after wrapping the lon set runs
+# -179.75 .. +180.00 — it has a node at +180 but NONE at -180.  In a
+# gridline grid spanning -180/180 that leaves the -180 column with no data
+# (NaN), which renders as the black NaN colour down the dateline.  Since
+# -180 and +180 are the SAME meridian, mirror the +180 column to -180 so the
+# grid is gap-free before we resample it to pixel registration in GMT.
 lons_adj = np.where(lons > 180.0, lons - 360.0, lons)
 LON, LAT = np.meshgrid(lons_adj, lats)
 mask = np.isfinite(N.ravel())
@@ -203,7 +210,16 @@ with open("tropo.xyz", "w") as f:
     for lo, la, nv in zip(LON.ravel()[mask], LAT.ravel()[mask], N.ravel()[mask]):
         f.write(f"{lo:.3f} {la:.3f} {nv:.2f}\n")
 
-print(f"  Wrote {mask.sum()} grid points to tropo.xyz", file=sys.stderr)
+    # Close the dateline: copy the +180 column to -180.
+    edge = np.isclose(lons_adj, 180.0)
+    N_edge   = N[:, edge].ravel()
+    LAT_edge = LAT[:, edge].ravel()
+    em = np.isfinite(N_edge)
+    for la, nv in zip(LAT_edge[em], N_edge[em]):
+        f.write(f"{-180.0:.3f} {la:.3f} {nv:.2f}\n")
+
+print(f"  Wrote {mask.sum() + em.sum()} grid points to tropo.xyz "
+      f"({em.sum()} mirrored to -180)", file=sys.stderr)
 PYEOF
 
 NPTS=$(wc -l < tropo.xyz)
@@ -211,9 +227,19 @@ echo "Grid points written: $NPTS"
 
 # ── 4. GMT: XYZ → NetCDF grid ────────────────────────────────────────────────
 #
-# GFS output is a regular 0.25° grid, so xyz2grd maps directly without
-# interpolation.  One light Gaussian filter pass smooths minor model
-# artefacts for cleaner visual presentation.
+# GFS data is gridline-registered (samples sit AT 0.25° multiples), so we bin
+# it with gridline registration — no -r.  The Python step has already mirrored
+# the +180 column to -180, so the grid is gap-free across the dateline with no
+# NaN edge column.
+#
+# We deliberately render this gridline grid straight to the projection, exactly
+# as HamClock's built-in maps do.  An earlier attempt to resample onto a
+# pixel-registered global grid (grdsample -fg) introduced a dateline
+# DISCONTINUITY: the mirror leaves both ±180 nodes present (the same meridian
+# twice), which violates grdsample's global-grid assumption that the last
+# column is not a duplicate, so the periodic resampler shifted one half of the
+# world relative to the other.  Rendering the gridline grid directly avoids
+# that entirely; any unpainted edge pixel is handled in the BMP writer.
 
 gmt xyz2grd tropo.xyz -R-180/180/-90/90 -I0.25 -Gtropo_raw.nc
 gmt grdfilter tropo_raw.nc -Fg1.5 -D0 -Ni -Gtropo.nc
@@ -263,6 +289,40 @@ inpng, outbmp, W, H, DN = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.ar
 img = Image.open(inpng).convert("RGB")
 if img.size != (W, H):
     img = img.resize((W, H), Image.LANCZOS)
+
+# ── Repair the dateline seam ─────────────────────────────────────────────────
+# GMT's equirectangular projection does not cleanly paint the outermost pixel
+# columns at ±180.  Two distinct artefacts appear over the black
+# `coast -Gblack -Sblack` base:
+#   • a fully-unpainted column at the +180 edge (pure 0,0,0), and
+#   • a PARTIALLY-painted column at each ±180 edge, where the data is blended
+#     ~50% with the black base and so reads systematically dark (e.g. a warm
+#     orange cell at the dateline showing up as dark olive).
+# The underlying grid is global, gap-free and continuous across the seam (the
+# source XYZ and tropo.nc both confirm matching values at ±179.75), so these
+# dark/black edge columns are never real data.  When HamClock reprojects the
+# texture, a dark edge column meets the live opposite edge and shows as a fine
+# line down the dateline.  Fix: (1) copy the nearest fully-painted column over
+# any unpainted black band on the right, then (2) overwrite each outermost
+# column with its painted neighbour to remove the half-painted artefact.
+# Adjacent columns are ~0.25° apart, so the copy is visually exact.  Done
+# before the D/N tint so copies inherit the same tint as their neighbours.
+px = img.load()
+def _black_frac(x):
+    blk = sum(1 for y in range(H) if px[x, y] == (0, 0, 0))
+    return blk / H
+gx = W - 1
+while gx > 0 and _black_frac(gx) > 0.5:
+    gx -= 1
+for x in range(gx + 1, W):
+    for y in range(H):
+        px[x, y] = px[gx, y]
+# Overwrite the partially-painted outermost column on each side.
+for y in range(H):
+    px[0, y]     = px[1, y]
+    px[W - 1, y] = px[W - 2, y]
+print(f"  edge repair: rightmost fully-painted column={gx}; "
+      f"both outermost columns copied from neighbours", file=sys.stderr)
 
 from PIL import Image, ImageEnhance
 
