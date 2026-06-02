@@ -258,12 +258,6 @@ get_compose_opts() {
                 REQUESTED_VOACAP_SERVICE_HOST="$2"
                 shift 2
                 ;;
-            -Vo)
-                [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
-                echo "using OHB MANAGER VERSION=$2 instead of $OHB_MANAGER_VERSION"
-                OHB_MANAGER_VERSION="$2"
-                shift 2
-                ;;
             -Vp)
                 [[ -z "$2" || "$2" == -* ]] && { echo "Command '$COMMAND': Option $1 requires an argument." >&2; exit 1; }
                 echo "using PSKR_MQTT_CACHE_TAG=$2 instead of $PSKR_MQTT_CACHE_TAG"
