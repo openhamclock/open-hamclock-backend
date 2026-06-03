@@ -18,9 +18,9 @@
 # at release time, this value is set to the tagged release
 OHB_MANAGER_VERSION=latest
 # tags to use
-VOACAP_SERVICE_TAG=1.16
-PSKR_MQTT_CACHE_TAG=1.13
-WSPR_LIVE_CACHE_TAG=1.1
+DEFAULT_VOACAP_SERVICE_TAG=1.16
+DEFAULT_PSKR_MQTT_CACHE_TAG=1.13
+DEFAULT_WSPR_LIVE_CACHE_TAG=1.1
 
 GITHUB_LATEST_RELEASE_URL="https://api.github.com/repos/komacke/open-hamclock-backend/releases/latest"
 OHB_HTDOCS_DVC=ohb-htdocs
@@ -1055,6 +1055,7 @@ services:
     container_name: $CONTAINER
     image: $IMAGE
     restart: unless-stopped
+    $CPUSHARE_OHB
     environment:
       HOST_HOSTNAME: $HOST_HOSTNAME
       PSKR_UID: 1001
@@ -1086,9 +1087,10 @@ services:
 
   pskr:
     container_name: pskr-mqtt-cache
-    image: komacke/pskr-mqtt-cache:$PSKR_MQTT_CACHE_TAG
+    image: komacke/pskr-mqtt-cache:${PSKR_MQTT_CACHE_TAG:-$DEFAULT_PSKR_MQTT_CACHE_TAG}
     init: true
     restart: unless-stopped
+    $CPUSHARE_PSKR_MQTT_CACHE
     networks:
       - ohb
     volumes:
@@ -1107,9 +1109,10 @@ services:
 
   wspr-live-cache:
     container_name: wspr-live-cache
-    image: komacke/wspr-live-cache:$WSPR_LIVE_CACHE_TAG
+    image: komacke/wspr-live-cache:${WSPR_LIVE_CACHE_TAG:-$DEFAULT_WSPR_LIVE_CACHE_TAG}
     init: true
     restart: unless-stopped
+    $CPUSHARE_WSPR_LIVE_CACHE
     environment:
       WSPR_DB_PATH: /data/wspr-live-cache.sqlite3
       WSPR_MAX_QUERY_AGE_SECONDS: 86400
@@ -1133,9 +1136,10 @@ services:
         condition: service_healthy
 
   voacap-service:
-    image: komacke/voacap-service:$VOACAP_SERVICE_TAG
+    image: komacke/voacap-service:${VOACAP_SERVICE_TAG:-$DEFAULT_VOACAP_SERVICE_TAG}
     container_name: voacap-service
     restart: unless-stopped
+    $CPUSHARE_VOACAP_SERVICE
     environment:
       LOG_LEVEL: INFO
     networks:
@@ -1170,7 +1174,7 @@ EOF
 }
 
 docker_compose_yml_tmpl_voacap_service() {
-    [ -z "$REQUESTED_TAG" ] && REQUESTED_TAG=$VOACAP_SERVICE_TAG
+    [ -z "$REQUESTED_TAG" ] && REQUESTED_TAG=${VOACAP_SERVICE_TAG:-$DEFAULT_VOACAP_SERVICE_TAG}
     [ -z "$REQUESTED_HTTP_PORT" ] && REQUESTED_HTTP_PORT=8080
 
     cat<<EOF
