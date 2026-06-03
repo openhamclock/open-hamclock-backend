@@ -86,6 +86,8 @@ import datetime
 import argparse
 import tempfile
 import math
+import ssl
+import re
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -104,6 +106,27 @@ TMP_DIR = "/opt/hamclock-backend/tmp"
 ATCF_BTK_URL  = "https://ftp.nhc.noaa.gov/atcf/btk/b{storm_id}.dat"
 ATCF_FST_URL  = "https://ftp.nhc.noaa.gov/atcf/fst/{storm_id}.fst"
 ATCF_ARC_URL  = "https://ftp.nhc.noaa.gov/atcf/archive/{year}/b{storm_id}.dat.gz"
+
+# JTWC products (W.Pacific, N.Indian, S.Hemisphere) -- NHC does NOT cover these
+# basins. The old nrlmry.navy.mil/atcf_web feed was walled off behind Akamai and
+# now returns an access-denied HTML page, so we read JTWC's ATCF data from NHC's
+# public mirror instead -- the SAME host this script already uses for NHC data.
+# We try a few candidate subdirs and use whichever actually contains JTWC
+# b-decks, rather than hard-coding a layout that may shift over time.
+JTWC_BTK_DIRS = [
+    "https://ftp.nhc.noaa.gov/atcf/jtwc/",   # confirmed: holds bwp/bio/bsh*.dat
+    "https://ftp.nhc.noaa.gov/atcf/btk/",    # fallback if JTWC ever merges here
+]
+JTWC_FST_DIRS = [
+    "https://ftp.nhc.noaa.gov/atcf/jtwc/",
+    "https://ftp.nhc.noaa.gov/atcf/fst/",
+]
+JTWC_BASINS = ("WP", "IO", "SH")
+# A storm counts as active only if its latest best-track point is this recent.
+# The mirror keeps dissipated storms around in-season, so this filter prevents
+# plotting every dead system of the year (and keeps a storm visible briefly
+# after it goes extratropical and drops from the warning set).
+JTWC_RECENCY_HOURS = 24
 
 # HURDAT2 -- contains storm names for all historical storms
 # Format: header line "AL012024, ALBERTO, 13, ..." followed by track lines
@@ -147,16 +170,21 @@ CATEGORY_THRESHOLDS = [
 
 def wind_to_category(wind_kt, basin="AL"):
     """Convert wind speed in knots to storm type and Saffir-Simpson category."""
-    # W.Pacific uses Typhoon designations
-    is_pacific = basin in ("WP", "IO", "CP")
+    # W.Pacific / N.Indian / C.Pacific call hurricane-strength storms "typhoons";
+    # the Southern Hemisphere calls them "tropical cyclones".
+    is_typhoon_basin = basin in ("WP", "IO", "CP")
+    is_sh_basin = basin == "SH"
     cat = 0
     stype = "TD"
     for threshold, t, c in CATEGORY_THRESHOLDS:
         if wind_kt >= threshold:
             stype = t
             cat = c
-    if is_pacific and stype == "HU":
-        stype = "TY"
+    if stype == "HU":
+        if is_typhoon_basin:
+            stype = "TY"
+        elif is_sh_basin:
+            stype = "TC"
     return stype, cat
 
 # ---------------------------------------------------------------------------
@@ -212,11 +240,18 @@ def parse_atcf_line(line):
         return None
 
 
-def fetch_url(url, timeout=15):
-    """Fetch URL, return text content or None on error."""
+def fetch_url(url, timeout=15, insecure=False):
+    """
+    Fetch URL, return text content or None on error.
+
+    Some Navy/JTWC hosts (nrlmry.navy.mil) periodically serve an expired or
+    otherwise unvalidated TLS certificate. Pass insecure=True to fall back to
+    an unverified SSL context -- use it ONLY for those hosts.
+    """
+    ctx = ssl._create_unverified_context() if insecure else None
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'HamClock-OHB/1.0'})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return resp.read().decode('utf-8', errors='replace')
     except Exception as e:
         print(f"# WARNING: fetch failed {url}: {e}", file=sys.stderr)
@@ -338,21 +373,25 @@ def fetch_storm_atcf(storm_id):
 def fetch_storm_forecast(storm_id):
     """
     Fetch ATCF official forecast track for a storm ID.
-    Returns list of parsed records with tau > 0.
+    Returns list of parsed records with tau > 0, one per forecast hour.
+
+    The OFCL forecast lists a separate row per wind-radii threshold (34/50/64
+    kt) for the same forecast hour, so we keep one record per tau to avoid
+    emitting duplicate track points.
     """
     atcf_id = storm_id.lower()
     url = ATCF_FST_URL.format(storm_id=atcf_id)
     data = fetch_url(url)
     if not data:
         return []
-    records = []
+    dedup = {}
     for line in data.splitlines():
         if not line.strip() or line.startswith('#'):
             continue
         rec = parse_atcf_line(line)
         if rec and rec['tech'] == 'OFCL' and rec['tau'] > 0:
-            records.append(rec)
-    return records
+            dedup[rec['tau']] = rec
+    return [dedup[t] for t in sorted(dedup)]
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +413,168 @@ def get_storm_name_from_json(storm_id):
     except Exception:
         pass
     return storm_id
+
+
+# ---------------------------------------------------------------------------
+# Live JTWC data via NHC's public ATCF mirror
+# ---------------------------------------------------------------------------
+# JTWC issues for basins NHC does not cover (WP/IO/SH), but NHC mirrors JTWC's
+# ATCF files on its public server. Same ATCF format as NHC, so parse_atcf_line()
+# is reused. We auto-discover which subdir holds the b-decks and guard against
+# HTML error pages being returned in place of data (the failure that silently
+# broke the old nrlmry source).
+
+def _is_denied(text):
+    """True if text is an explicit access-denied / not-found / forbidden page."""
+    head = text[:800].lower()
+    return ("don't have permission" in head or 'access denied' in head
+            or 'forbidden' in head or '404 not found' in head
+            or 'not found' in head and '<html' in head)
+
+
+def _is_html(text):
+    """True if text is an HTML document (a data file should be plain text)."""
+    head = text.lstrip()[:200].lower()
+    return head.startswith('<!doctype') or head.startswith('<html') or '<html' in head
+
+
+def fetch_listing(url):
+    """
+    Fetch a directory listing. Listings ARE html (Apache autoindex), so we only
+    reject explicit denial/404 pages -- not html in general. This is the bug
+    that previously made every listing look like an error.
+    """
+    text = fetch_url(url)
+    if text is None:
+        return None
+    if _is_denied(text):
+        print(f"# WARNING: {url} access denied / not found "
+              f"-- source may have moved or be blocked", file=sys.stderr)
+        return None
+    return text
+
+
+def fetch_data_url(url):
+    """
+    Fetch a data file (b-deck / forecast). These are plain-text ATCF, so any
+    html response means a redirect/error page was served instead of data.
+    """
+    text = fetch_url(url)
+    if text is None:
+        return None
+    if _is_denied(text) or _is_html(text):
+        print(f"# WARNING: {url} returned a non-data page (html/denied) "
+              f"-- skipping", file=sys.stderr)
+        return None
+    return text
+
+
+def _fetch_first(dirs, filename):
+    """Try filename under each base dir in turn; return text for the first hit."""
+    for base in dirs:
+        text = fetch_data_url(base + filename)
+        if text:
+            return text
+    return None
+
+
+def _dtg_age_hours(dtg):
+    """Hours from an ATCF DTG (YYYYMMDDHH) to now (UTC); None if unparseable."""
+    try:
+        t = datetime.datetime.strptime(str(dtg)[:10], "%Y%m%d%H")
+    except (ValueError, TypeError):
+        return None
+    return (datetime.datetime.utcnow() - t).total_seconds() / 3600.0
+
+
+def get_active_storm_ids_jtwc():
+    """
+    Discover JTWC storm IDs (WP/IO/SH) from NHC's public ATCF mirror by scanning
+    the directory listing for b-deck filenames. Tries each candidate dir and
+    uses the first that actually contains JTWC b-decks. Recency is filtered
+    later, when each b-deck is read. Returns IDs like ['WP062026'].
+    """
+    for base in JTWC_BTK_DIRS:
+        listing = fetch_listing(base)
+        if not listing:
+            continue
+        ids, seen = [], set()
+        for basin, num, year in re.findall(r'b(wp|io|sh)(\d{2})(\d{4})\.dat',
+                                           listing, re.IGNORECASE):
+            sid = f"{basin.upper()}{num}{year}"
+            if sid not in seen:
+                seen.add(sid)
+                ids.append(sid)
+        if ids:
+            return ids
+    print("# WARNING: no JTWC b-decks found in any NHC ATCF mirror dir "
+          "(check JTWC_BTK_DIRS)", file=sys.stderr)
+    return []
+
+
+def fetch_storm_atcf_jtwc(storm_id):
+    """Best-track records (tech=BEST) for a JTWC storm from the NHC mirror."""
+    text = _fetch_first(JTWC_BTK_DIRS, f"b{storm_id.lower()}.dat")
+    if not text:
+        return []
+    records = []
+    for line in text.splitlines():
+        if not line.strip() or line.startswith('#'):
+            continue
+        rec = parse_atcf_line(line)
+        if rec and rec['tech'].upper() == 'BEST':
+            records.append(rec)
+    return records
+
+
+def fetch_storm_forecast_jtwc(storm_id):
+    """
+    Official forecast track (tau>0) for a JTWC storm from its .fst file.
+    JTWC's .fst may not label the official forecast 'OFCL' the way NHC does,
+    so prefer OFCL/JTWC, else fall back to whichever technique has the most
+    points. One record per forecast hour. Returns [] if no .fst is mirrored.
+    """
+    text = _fetch_first(JTWC_FST_DIRS, f"{storm_id.lower()}.fst")
+    if not text:
+        return []
+    by_tech = {}
+    for line in text.splitlines():
+        if not line.strip() or line.startswith('#'):
+            continue
+        rec = parse_atcf_line(line)
+        if rec and rec['tau'] > 0:
+            by_tech.setdefault(rec['tech'].upper(), []).append(rec)
+    if not by_tech:
+        return []
+    for pref in ('OFCL', 'JTWC'):
+        if pref in by_tech:
+            chosen = by_tech[pref]
+            break
+    else:
+        chosen = max(by_tech.values(), key=len)
+    dedup = {rec['tau']: rec for rec in chosen}
+    return [dedup[t] for t in sorted(dedup)]
+
+
+def get_jtwc_name(storm_id, btk_text=None):
+    """
+    Best-effort name. JTWC ATCF b-decks carry the storm name in field 28 once
+    named; use it if present, else fall back to the short JTWC designator, e.g.
+    WP062026 -> '06W', SH152026 -> '15S'.
+    """
+    basin, num = storm_id[:2].upper(), storm_id[2:4]
+    suffix = {'WP': 'W', 'IO': 'B', 'SH': 'S', 'EP': 'E', 'CP': 'C'}.get(basin, '')
+    designator = f"{num}{suffix}"
+    if btk_text is None:
+        btk_text = _fetch_first(JTWC_BTK_DIRS, f"b{storm_id.lower()}.dat")
+    if btk_text:
+        for line in reversed(btk_text.splitlines()):
+            fields = [f.strip() for f in line.split(',')]
+            if len(fields) > 27:
+                cand = fields[27].upper()
+                if cand.isalpha() and cand not in ('INVEST', 'NONAME', 'UNNAMED'):
+                    return cand
+    return designator
 
 
 # ---------------------------------------------------------------------------
@@ -573,8 +774,44 @@ def get_live_output():
                 f"{rec['vmax']},{rec['tau']},{advisory}"
             )
 
+    # --- JTWC: W.Pacific / N.Indian / S.Hemisphere (not covered by NHC) ---
+    jtwc_ids = get_active_storm_ids_jtwc()
+    jtwc_active = 0
+    for storm_id in jtwc_ids:
+        basin = storm_id[:2]
+
+        btk_records = fetch_storm_atcf_jtwc(storm_id)
+        if not btk_records:
+            print(f"# WARNING: no JTWC best-track for {storm_id}", file=sys.stderr)
+            continue
+
+        current = btk_records[-1]
+        age = _dtg_age_hours(current['dtg'])
+        if age is not None and age > JTWC_RECENCY_HOURS:
+            # Dissipated / stale storm still sitting in the mirror -- skip it.
+            print(f"# Skipping {storm_id}: last fix {age:.0f}h old", file=sys.stderr)
+            continue
+        jtwc_active += 1
+
+        name = get_jtwc_name(storm_id)
+        advisory = current['dtg']
+        stype, cat = wind_to_category(current['vmax'], basin)
+        all_storm_lines.append(
+            f"{name},{basin},{stype},{cat},"
+            f"{current['lat']:.1f},{current['lon']:.1f},"
+            f"{current['vmax']},0,{advisory}"
+        )
+
+        for rec in fetch_storm_forecast_jtwc(storm_id):
+            stype_f, cat_f = wind_to_category(rec['vmax'], basin)
+            all_storm_lines.append(
+                f"{name},{basin},{stype_f},{cat_f},"
+                f"{rec['lat']:.1f},{rec['lon']:.1f},"
+                f"{rec['vmax']},{rec['tau']},{advisory}"
+            )
+
     now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-    n = len(storm_ids)
+    n = len(storm_ids) + jtwc_active
     lines.append(f"# TROPICAL CYCLONES {n} storms as of {now} UTC")
     lines.extend(all_storm_lines)
     return lines
@@ -626,11 +863,17 @@ def main():
     elif args.archive:
         lines = get_archive_output(args.archive)
     elif args.storm:
-        # Single storm mode
+        # Single storm mode -- route JTWC basins to the JTWC fetchers
         storm_id = args.storm.upper()
         basin = storm_id[:2]
-        btk = fetch_storm_atcf(storm_id)
-        fst = fetch_storm_forecast(storm_id)
+        if basin in JTWC_BASINS:
+            btk = fetch_storm_atcf_jtwc(storm_id)
+            fst = fetch_storm_forecast_jtwc(storm_id)
+            disp_name = get_jtwc_name(storm_id)
+        else:
+            btk = fetch_storm_atcf(storm_id)
+            fst = fetch_storm_forecast(storm_id)
+            disp_name = storm_id
         now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
         lines = [f"# TROPICAL CYCLONES 1 storm ({storm_id}) as of {now} UTC"]
         if btk:
@@ -638,14 +881,14 @@ def main():
             advisory = current['dtg']
             stype, cat = wind_to_category(current['vmax'], basin)
             lines.append(
-                f"{storm_id},{basin},{stype},{cat},"
+                f"{disp_name},{basin},{stype},{cat},"
                 f"{current['lat']:.1f},{current['lon']:.1f},"
                 f"{current['vmax']},0,{advisory}"
             )
         for rec in fst:
             stype_f, cat_f = wind_to_category(rec['vmax'], basin)
             lines.append(
-                f"{storm_id},{basin},{stype_f},{cat_f},"
+                f"{disp_name},{basin},{stype_f},{cat_f},"
                 f"{rec['lat']:.1f},{rec['lon']:.1f},"
                 f"{rec['vmax']},{rec['tau']},{rec['dtg']}"
             )
