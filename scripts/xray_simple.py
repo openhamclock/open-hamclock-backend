@@ -30,7 +30,8 @@ CSI_LAG_MINUTES = 21
 def main() -> None:
     # Retry up to 3 times with backoff in case of transient SWPC issues
     for attempt in range(3):
-        r = requests.get(URL, timeout=(10, 60))
+        headers = {'User-Agent': 'OHB-XRay-Fetcher/1.0'}
+        r = requests.get(URL, headers=headers, timeout=(10, 60))
         r.raise_for_status()
 
         content_type = r.headers.get('Content-Type', '')

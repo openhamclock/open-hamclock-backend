@@ -89,7 +89,7 @@ my $ua = Mojo::UserAgent->new
     ->max_redirects(0);
 
 #my $tx = $ua->build_tx(GET => $url);
-my $original_ua = $ENV{HTTP_USER_AGENT} // '';
+my $original_ua = $ENV{HTTP_USER_AGENT} // 'OHB-Proxy/1.0';
 my $tx = $ua->build_tx(GET => $url, {'User-Agent' => $original_ua});
 
 # Stream upstream body to stdout chunk-by-chunk. Each syswrite reveals

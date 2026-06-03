@@ -38,7 +38,7 @@ mkdir $tmp_dir unless -d $tmp_dir;
 
 # Increased timeout to 60s for binary downloads
 my $ua = LWP::UserAgent->new(timeout => 60);
-$ua->agent("Version-Cache-Updater/1.0");
+$ua->agent("OHB-Version-Updater/1.0");
 
 # Helper for retriable file downloads
 sub get_file_with_retry {

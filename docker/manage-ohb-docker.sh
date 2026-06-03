@@ -323,7 +323,7 @@ EOF
 }
 
 upgrade_this_script() {
-    CHECK_LATEST_JSON=$(curl -s "$GITHUB_LATEST_RELEASE_URL")
+    CHECK_LATEST_JSON=$(curl -s -A "OHB-Manager/1.0" "$GITHUB_LATEST_RELEASE_URL")
 
     URL_LATEST_THIS=$(echo "$CHECK_LATEST_JSON" | jq -r ".assets[] | select(.browser_download_url | contains(\"$DOCKER_PROJECT\")) | .browser_download_url")
     DIGEST_LATEST_THIS=$(echo "$CHECK_LATEST_JSON" | jq -r ".assets[] | select(.browser_download_url | contains(\"$DOCKER_PROJECT\")) | .digest")
@@ -353,7 +353,7 @@ EOF
     if [ "${DOIT,,}" == y ]; then
         echo "Getting new version ..."
         TMP_MGR_FILE=$(mktemp -p ./)
-        curl -sLo $TMP_MGR_FILE $URL_LATEST_THIS
+        curl -sLo $TMP_MGR_FILE -A "OHB-Manager/1.0" $URL_LATEST_THIS
         chmod --reference=$THIS $TMP_MGR_FILE
 
         DIGEST_FILE=sha256:$(sha256sum $TMP_MGR_FILE | cut -d ' ' -f1)
@@ -413,7 +413,7 @@ is_ohb_installed() {
     else
         echo "  git checkout not found."
     fi
-    TAG_FROM_GIT=$(curl -s --connect-timeout 2 "$GITHUB_LATEST_RELEASE_URL" | jq -r '.tag_name // ""')
+    TAG_FROM_GIT=$(curl -s -A "OHB-Manager/1.0" --connect-timeout 2 "$GITHUB_LATEST_RELEASE_URL" | jq -r '.tag_name // ""')
     echo "  Latest release available from GitHub: '$TAG_FROM_GIT'"
 
     echo
@@ -1076,7 +1076,7 @@ services:
     tmpfs:
        - /opt/hamclock-backend/upload-diags:uid=33,gid=33,mode=1700,size=16m
     healthcheck:
-      test: ["CMD", "curl", "-f", "-A", "healthcheck/1.0", "http://localhost:80/ham/HamClock/version.pl"]
+      test: ["CMD", "curl", "-f", "-A", "OHB-HealthCheck/1.0", "http://localhost:80/ham/HamClock/version.pl"]
       timeout: "5s"
       start_period: "20s"
     logging:
@@ -1190,7 +1190,7 @@ services:
       - /run:size=8m
       - /tmp:size=32m
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "-q", "-U", "OHB-HealthCheck/1.0", "-O-", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -36,6 +36,7 @@ if ($alpha eq 'true') {
     my $url = "http://$host/ham/HamClock/sysmsg.pl";
 
     my $ua = LWP::UserAgent->new(timeout => 5);
+    $ua->agent($ENV{HTTP_USER_AGENT} // 'OHB-Proxy/1.0');
     my $resp = $ua->get($url);
 
     print "Content-Type: text/plain\r\n\r\n";
