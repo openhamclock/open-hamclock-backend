@@ -48,7 +48,7 @@ mkdir -p "$OUTDIR"
 TXT="drap_global_frequencies.txt"
 
 echo "Fetching DRAP..."
-curl -fsSL -A "open-hamclock-backend/1.0" \
+curl -fsSL -A "OHB-DRAP-Fetcher/1.0" \
   https://services.swpc.noaa.gov/text/drap_global_frequencies.txt \
   -o "$TXT"
 

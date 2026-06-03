@@ -341,7 +341,7 @@ foreach my $ohb_base_url (@ohb_servers) {
 
     # 1. Determine current versions from the OHB server
     my $stable_ver_served = "";
-    $ua->agent("HamClock-Verifier/1.0");
+    $ua->agent("OHB-HamClock-Verifier/1.0");
     my $s_resp = $ua->get("$ohb_base_url/ham/HamClock/version.pl");
     if ($s_resp->is_success) {
         $stable_ver_served = (split(/\R/, $s_resp->decoded_content))[0];
@@ -370,7 +370,7 @@ foreach my $ohb_base_url (@ohb_servers) {
             last if versioncmp($bv, $stable_ver_served) <= 0;
             $github_has_newer_beta = 1;
 
-            my $probe_ua = "HamClock-Verifier/${bv}b00";
+            my $probe_ua = "OHB-HamClock-Verifier/${bv}b00";
             $ua->agent($probe_ua);
             my $v_resp = $ua->get("$ohb_base_url/ham/HamClock/version.pl");
             if ($v_resp->is_success) {
@@ -408,7 +408,7 @@ foreach my $ohb_base_url (@ohb_servers) {
         if ($type eq '3.10') {
             $ua->agent("ESP8266-http-Update");
         } elsif ($type eq 'beta') {
-            $ua->agent("HamClock-Verifier/$srv_ver");
+            $ua->agent("OHB-HamClock-Verifier/$srv_ver");
         } else {
             $ua->agent("OHB-External-Verifier/1.0");
         }
