@@ -481,10 +481,10 @@ def _fetch_first(dirs, filename):
 def _dtg_age_hours(dtg):
     """Hours from an ATCF DTG (YYYYMMDDHH) to now (UTC); None if unparseable."""
     try:
-        t = datetime.datetime.strptime(str(dtg)[:10], "%Y%m%d%H")
+        t = datetime.datetime.strptime(str(dtg)[:10], "%Y%m%d%H").replace(tzinfo=datetime.timezone.utc)
     except (ValueError, TypeError):
         return None
-    return (datetime.datetime.utcnow() - t).total_seconds() / 3600.0
+    return (datetime.datetime.now(datetime.timezone.utc) - t).total_seconds() / 3600.0
 
 
 def get_active_storm_ids_jtwc():
@@ -638,7 +638,7 @@ TEST_STORMS = [
 def get_test_output():
     """Generate output from synthetic test data."""
     lines = []
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
     lines.append(f"# TROPICAL CYCLONES {len(TEST_STORMS)} storms (TEST DATA) as of {now} UTC")
     for storm in TEST_STORMS:
         name   = storm['name']
@@ -702,7 +702,7 @@ def get_archive_output(year):
         except Exception as e:
             print(f"# Error fetching {url}: {e}", file=sys.stderr)
 
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
     lines.append(f"# TROPICAL CYCLONES {len(storms_found)} storms ({year} archive) as of {now} UTC")
 
     # Build name lookup
@@ -810,7 +810,7 @@ def get_live_output():
                 f"{rec['vmax']},{rec['tau']},{advisory}"
             )
 
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
     n = len(storm_ids) + jtwc_active
     lines.append(f"# TROPICAL CYCLONES {n} storms as of {now} UTC")
     lines.extend(all_storm_lines)
@@ -874,7 +874,7 @@ def main():
             btk = fetch_storm_atcf(storm_id)
             fst = fetch_storm_forecast(storm_id)
             disp_name = storm_id
-        now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
         lines = [f"# TROPICAL CYCLONES 1 storm ({storm_id}) as of {now} UTC"]
         if btk:
             current = btk[-1]
