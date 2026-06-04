@@ -167,6 +167,11 @@ main() {
 
     if [[ "$SAVE_STICKY_VARS" == "true" && $RETVAL -eq 0 ]]; then
         save_sticky_vars
+        if [ $? -ne 0 ]; then
+            echo "WARNING: env file was not saved. Check:"
+            echo "    $STICKY_ENV_FILE"
+            echo "before trying again."
+        fi
     fi
 }
 
@@ -308,7 +313,11 @@ get_sticky_vars() {
 }
 
 save_sticky_vars() {
-    cat<<EOF > $STICKY_ENV_FILE
+    # Use a temporary file to make the write atomic and avoid 0-byte files on interruption.
+    local TMP_STICKY
+    TMP_STICKY=$(mktemp "${STICKY_ENV_FILE}.XXXXXX") || return 1
+
+    cat<<EOF > "$TMP_STICKY"
 STICKY_HTTP_PORT="$HTTP_PORT"
 STICKY_HTTPS_PORT="$HTTPS_PORT"
 STICKY_LIGHTTPD_ENV_FILE="$ENV_FILE"
@@ -318,8 +327,10 @@ STICKY_MAP_SIZES="$MAP_SIZES"
 STICKY_VOACAP_SERVICE_HOST="$VOACAP_SERVICE_HOST"
 STICKY_ALPHA_INSTALL="$ALPHA_INSTALL"
 STICKY_PROXY_MAPS="$PROXY_MAPS"
-STICKY_HOST_HOSTNAME=$HOST_HOSTNAME
+STICKY_HOST_HOSTNAME="$HOST_HOSTNAME"
 EOF
+
+    mv "$TMP_STICKY" "$STICKY_ENV_FILE"
 }
 
 upgrade_this_script() {
