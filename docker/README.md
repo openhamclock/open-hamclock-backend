@@ -203,6 +203,12 @@ OPEN_WEATHER_API_KEY=<insert key here>
 
 # for the app.ipgeolocation.io API
 IPGEOLOC_API_KEY=<insert key here>
+
+# for api.timezonedb.com which computes DST
+TIMEZONEDB_API_KEY=<insert key here>
+
+# for WWFF spots that are pulled from cqgma.org
+CQGMA_API_KEY=<insert key here>
 ```
 Replace \<insert key here\> with your respective key.
 

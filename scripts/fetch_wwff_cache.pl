@@ -57,6 +57,25 @@ use File::Path qw(make_path);
 
 my $GMA_SOURCE = 'https://www.cqgma.org/api/spots/wwff/';
 
+# Get CQGMA_API_KEY from environment or .env file
+my $CQGMA_API_KEY = $ENV{CQGMA_API_KEY} // '';
+if (!$CQGMA_API_KEY && -f '/opt/hamclock-backend/.env') {
+    if (open my $efh, '<', '/opt/hamclock-backend/.env') {
+        while (my $line = <$efh>) {
+            if ($line =~ /^CQGMA_API_KEY=(.*)/) {
+                $CQGMA_API_KEY = $1;
+                $CQGMA_API_KEY =~ s/^\s+|\s+$//g;
+                $CQGMA_API_KEY =~ s/^['"]|['"]$//g;
+                last;
+            }
+        }
+        close $efh;
+    }
+}
+
+die "ERROR: CQGMA_API_KEY is not set in environment or /opt/hamclock-backend/.env\n" unless $CQGMA_API_KEY;
+$GMA_SOURCE .= "?key=$CQGMA_API_KEY";
+
 # If a mirror fetch fails, the script checks the local cache age. If it exceeds 
 # this threshold (in seconds), a fallback fetch to the GMA source is attempted.
 my $STALE_THRESHOLD = 3600;
