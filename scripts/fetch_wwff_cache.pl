@@ -13,7 +13,7 @@
 #  fetch_wwff_cache.pl -- Central WWFF spot mirror fetcher
 #
 #           *** RUNS ON ALL OHB HOSTS ***
-#      Behavior determined by ALPHA_INSTALL environment variable
+#      Behavior determined by CQGMA_API_KEY and MIRROR environment variables
 #
 #  Fetches live WWFF spots from cqgma.org once per minute and writes them
 #  to a local JSON file that all OHB installations (central + self-install)
@@ -24,8 +24,8 @@
 #  the service free and stable, OHB now uses a single shared mirror
 #  instead of letting every installation poll GMA directly.
 #
-#  Self-install operators: DO NOT set ALPHA_INSTALL=true. Your gen_onta.pl
-#  will read from the central mirror automatically.
+#  Self-install operators: Your gen_onta.pl will read from the shared MIRROR 
+#  automatically if CQGMA_API_KEY is not set.
 #
 #  Part of the OHB project:
 #  https://github.com/komacke/open-hamclock-backend/tree/main
@@ -55,62 +55,48 @@ use File::Copy qw(move);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 
+my $MIRROR     = $ENV{MIRROR} || 'ohb.hamclock.app';
 my $GMA_SOURCE = 'https://www.cqgma.org/api/spots/wwff/';
 
-# If a mirror fetch fails, the script checks the local cache age. If it exceeds 
-# this threshold (in seconds), a fallback fetch to the GMA source is attempted.
-my $STALE_THRESHOLD = 3600;
+# Get CQGMA_API_KEY from environment or .env file
+my $CQGMA_API_KEY = $ENV{CQGMA_API_KEY} // '';
+if (!$CQGMA_API_KEY && -f '/opt/hamclock-backend/.env') {
+    if (open my $efh, '<', '/opt/hamclock-backend/.env') {
+        while (my $line = <$efh>) {
+            if ($line =~ /^CQGMA_API_KEY=(.*)/) {
+                $CQGMA_API_KEY = $1;
+                $CQGMA_API_KEY =~ s/^\s+|\s+$//g;
+                $CQGMA_API_KEY =~ s/^['"]|['"]$//g;
+                last;
+            }
+        }
+        close $efh;
+    }
+}
 
-my $alpha = $ENV{ALPHA_INSTALL} // '';
 my $WWFF_URL;
-
-if ($alpha eq 'true') {
-    # This is the central mirror, fetch from the source
-    $WWFF_URL = $GMA_SOURCE;
-} elsif ($alpha =~ /^http/) {
-    # Full URL provided
-    $WWFF_URL = $alpha;
-} elsif ($alpha ne '') {
-    # Hostname provided, build the well-known path
-    $WWFF_URL = "http://$alpha/ham/HamClock/ONTA/wwff_spots.json";
+if ($CQGMA_API_KEY =~ /^GMA-/) {
+    $WWFF_URL = $GMA_SOURCE . "?key=$CQGMA_API_KEY";
 } else {
-    # Fallback default
-    $WWFF_URL = 'http://ohb.hamclock.app/ham/HamClock/ONTA/wwff_spots.json';
+    $WWFF_URL = ($MIRROR =~ /^http/) ? $MIRROR : "http://$MIRROR";
+    $WWFF_URL =~ s|/?$|/ham/HamClock/ONTA/wwff_spots.json|;
 }
 
 my $OUT      = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
-my $TMP      = "$OUT.tmp";
+my $TMP_DIR  = '/opt/hamclock-backend/htdocs/tmp';
+my $TMP      = "$TMP_DIR/wwff_spots.json.tmp";
 
-# Ensure output directory exists
-my $dir = dirname($OUT);
-unless (-d $dir) {
-    make_path($dir) or die "Cannot create $dir: $!\n";
+# Ensure directories exist
+for my $d (dirname($OUT), $TMP_DIR) {
+    make_path($d) or die "Cannot create $d: $!\n" unless -d $d;
 }
 
 my $ua = LWP::UserAgent->new(
     timeout => 15,
-    agent   => 'OHB-WWFF-Cache/1.0 (+https://github.com/komacke/open-hamclock-backend; mirror fetcher)',
+    agent   => 'OHB-WWFF-Cache/1.0 (+https://github.com/komacke/open-hamclock-backend; spot fetcher)',
 );
 
 my $resp = $ua->get($WWFF_URL);
-
-if (!$resp->is_success && $WWFF_URL ne $GMA_SOURCE) {
-    # If primary fetch from a mirror fails, check staleness.
-    # If the local file hasn't been updated in over an hour, allow one fallback attempt to GMA.
-    my $mtime = (stat($OUT))[9] // 0;
-    my $age   = time() - $mtime;
-
-    if ($age > $STALE_THRESHOLD) {
-        warn "Mirror $WWFF_URL failed (" . $resp->status_line . ") and cache is stale (${age}s). Falling back to GMA ($GMA_SOURCE).\n";
-        my $fallback_resp = $ua->get($GMA_SOURCE);
-        if ($fallback_resp->is_success) {
-            $resp = $fallback_resp;
-            $WWFF_URL = $GMA_SOURCE;
-        } else {
-            warn "Fallback to GMA also failed: " . $fallback_resp->status_line . "\n";
-        }
-    }
-}
 
 unless ($resp->is_success) {
     warn "WWFF fetch failed from $WWFF_URL: " . $resp->status_line . "\n";
