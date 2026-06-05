@@ -75,7 +75,7 @@ if (!$CQGMA_API_KEY && -f '/opt/hamclock-backend/.env') {
 }
 
 my $WWFF_URL;
-if ($CQGMA_API_KEY) {
+if ($CQGMA_API_KEY =~ /^GMA-/) {
     $WWFF_URL = $GMA_SOURCE . "?key=$CQGMA_API_KEY";
 } else {
     $WWFF_URL = ($MIRROR =~ /^http/) ? $MIRROR : "http://$MIRROR";
