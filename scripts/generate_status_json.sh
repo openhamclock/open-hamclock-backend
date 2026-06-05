@@ -67,6 +67,16 @@ fi
 DATA_DIR="/opt/hamclock-backend/htdocs/ham/HamClock"
 MAPS_DIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
 SDO_DIR="/opt/hamclock-backend/htdocs/ham/HamClock/SDO"
+
+# Detect if we are mirroring WWFF (no key) or maps (PROXY_MAPS set)
+CQGMA_API_KEY="${CQGMA_API_KEY:-}"
+if [ -z "$CQGMA_API_KEY" ] && [ -f "/opt/hamclock-backend/.env" ]; then
+    CQGMA_API_KEY=$(grep '^CQGMA_API_KEY=' /opt/hamclock-backend/.env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+fi
+
+# Determine the central mirror host
+MIRROR_HOST="${MIRROR:-ohb.hamclock.app}"
+
 OUTPUT="/opt/hamclock-backend/htdocs/ham/HamClock/status.html"
 OUTPUT_JSON="${OUTPUT%.html}.json"
 DYNAMIC_SIDECAR="/opt/hamclock-backend/htdocs/ham/HamClock/dynamic_status.json"
@@ -173,17 +183,26 @@ NOW=$(date -u "+%Y-%m-%d %H:%M:%S")
 NOW_EPOCH=$(date -u +%s)
 
 # ── Remote Alpha Status ─────────────────────────────────────────────────────
-declare -A REMOTE_MAP_MOD=()
-declare -A REMOTE_MAP_STATUS=()
+declare -A REMOTE_FILE_MOD=()
+declare -A REMOTE_FILE_STATUS=()
+
+REMOTE_STATUS_HOST=""
 if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
-    REMOTE_URL="http://${PROXY_MAPS}/ham/HamClock/status.json"
+    REMOTE_STATUS_HOST="${PROXY_MAPS}"
+    [[ "$REMOTE_STATUS_HOST" == "true" ]] && REMOTE_STATUS_HOST="$MIRROR_HOST"
+elif [[ ! "$CQGMA_API_KEY" =~ ^GMA- ]]; then
+    REMOTE_STATUS_HOST="${MIRROR_HOST}"
+fi
+
+if [[ -n "$REMOTE_STATUS_HOST" ]]; then
+    REMOTE_URL="http://${REMOTE_STATUS_HOST}/ham/HamClock/status.json"
     REMOTE_JSON=$(curl -sSL --max-time 10 "$REMOTE_URL")
     if [[ -n "$REMOTE_JSON" ]] && echo "$REMOTE_JSON" | jq -e . >/dev/null 2>&1; then
-        while IFS=$'\t' read -r rfname mtime status; do
+        while IFS=$'\t' read -r rfname rcat mtime status; do
             [[ -n "$rfname" ]] || continue
-            REMOTE_MAP_MOD["$rfname"]="$mtime"
-            REMOTE_MAP_STATUS["$rfname"]="$status"
-        done < <(echo "$REMOTE_JSON" | jq -r '.files[] | select(.category=="map") | "\(.filename)\t\(.modified_utc)\t\(.status)"' 2>/dev/null)
+            REMOTE_FILE_MOD["$rfname"]="$mtime"
+            REMOTE_FILE_STATUS["$rfname"]="$status"
+        done < <(echo "$REMOTE_JSON" | jq -r '.files[] | "\(.filename)\t\(.category)\t\(.modified_utc)\t\(.status)"' 2>/dev/null)
     fi
 fi
 
@@ -257,11 +276,18 @@ emit_file_row() {
 
     local mod_epoch mod_human age_sec status_class status_text
 
-    if [[ "$label" == "map" && -n "${REMOTE_MAP_MOD[$filename]:-}" ]]; then
-        mod_human="${REMOTE_MAP_MOD[$filename]}"
+    local use_remote=0
+    if [[ "$label" == "map" && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+        use_remote=1
+    elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+        use_remote=1
+    fi
+
+    if [ "$use_remote" -eq 1 ]; then
+        mod_human="${REMOTE_FILE_MOD[$filename]}"
         mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
         age_sec=$(( NOW_EPOCH - mod_epoch ))
-        status_text="${REMOTE_MAP_STATUS[$filename]}"
+        status_text="${REMOTE_FILE_STATUS[$filename]}"
         case "$status_text" in
             FRESH)  status_class="ok" ;;
             RECENT) status_class="warn" ;;
@@ -388,11 +414,18 @@ build_json_entries() {
 
         local mod_epoch mod_human age_sec status_text
 
-        if [[ "$label" == "map" && -n "${REMOTE_MAP_MOD[$filename]:-}" ]]; then
-            mod_human="${REMOTE_MAP_MOD[$filename]}"
+        local use_remote=0
+        if [[ "$label" == "map" && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+            use_remote=1
+        elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+            use_remote=1
+        fi
+
+        if [ "$use_remote" -eq 1 ]; then
+            mod_human="${REMOTE_FILE_MOD[$filename]}"
             mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
             age_sec=$(( NOW_EPOCH - mod_epoch ))
-            status_text="${REMOTE_MAP_STATUS[$filename]}"
+            status_text="${REMOTE_FILE_STATUS[$filename]}"
         else
             mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
             mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
