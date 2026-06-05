@@ -23,7 +23,7 @@ use Sys::Syslog qw(:standard :macros);
 $| = 1;
 
 # Initialize syslog connection
-openlog('ohb-verify-fw', 'ndelay,pid', 'local0');
+openlog($FindBin::Script, 'ndelay,pid', 'local0');
 
 # --- Configuration ---
 my $VERSION = "latest";
@@ -34,6 +34,7 @@ my $cmd_to_addresses;
 my $cmd_alert_on_missing_val;
 my $cmd_upgrade;
 my $cmd_force;
+my $cmd_version;
 
 GetOptions(
     "s=s" => \$cmd_servers,          # Comma-separated list of server URLs
@@ -41,7 +42,13 @@ GetOptions(
     "a:i" => \$cmd_alert_on_missing_val, # 0 or 1, overrides default
     "u"   => \$cmd_upgrade,          # Self-upgrade flag
     "f"   => \$cmd_force,            # Force upgrade flag
+    "v"   => \$cmd_version,          # Version flag
 ) or die "Error in command line arguments\n";
+
+if ($cmd_version) {
+    print "$FindBin::Script version: '$VERSION'\n";
+    exit 0;
+}
 
 my $servers_str = $cmd_servers // $ENV{'OHB_VERIFY_SERVERS'};
 my $to_list = $cmd_to_addresses // $ENV{'OHB_VERIFY_EMAILS'};
@@ -582,6 +589,9 @@ Usage:
 
   # Check a specific server, send alerts to specific addresses, do not alert on missing files
   ./verify_firmware_integrity.pl -s "https://your-server-ip" -t "admin@example.com,ops@example.com" -a 0
+
+  # Show version
+  ./verify_firmware_integrity.pl -v
 
   # Check for script updates and upgrade if available
   ./verify_firmware_integrity.pl -u
