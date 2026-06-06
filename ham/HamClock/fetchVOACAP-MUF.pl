@@ -49,7 +49,7 @@ $SIG{PIPE} = 'IGNORE';
 # —————————————————————————
 
 my $host        = $ENV{VOACAP_SERVICE_HOST} || 'voacap-service:8080';
-my $SERVICE_URL = "http://$host";
+my $SERVICE_URL = "http://$host/ham/HamClock";
 my $ENDPOINT    = "$SERVICE_URL/fetchVOACAP-MUF.pl";
 
 # Hard upper bound on the proxied request. Matches voacap-service's

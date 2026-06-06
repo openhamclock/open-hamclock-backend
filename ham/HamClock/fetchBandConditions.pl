@@ -25,8 +25,8 @@ use Mojo::IOLoop;
 $SIG{PIPE} = 'IGNORE';
 
 my $host        = $ENV{VOACAP_SERVICE_HOST} || 'voacap-service:8080';
-my $SERVICE_URL = "http://$host";
-my $ENDPOINT    = "$SERVICE_URL/fetchBandConditions";
+my $SERVICE_URL = "http://$host/ham/HamClock";
+my $ENDPOINT    = "$SERVICE_URL/fetchBandConditions.pl";
 
 # Timeout layers (shortest first):
 #   Python subprocess(voacapl) = 30s   (voacap_service.py)
