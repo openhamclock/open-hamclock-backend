@@ -46,7 +46,10 @@ DEFAULT_EXTERNAL_HTTP_LOG=false
 # the following env is the lighttpd env file
 DEFAULT_ENV_FILE="$STARTED_FROM/.env"
 DEFAULT_MAP_SIZES=all
+# voacap container will be disabled when not default
 DEFAULT_VOACAP_SERVICE_HOST=voacap-service:8080
+# PSKR container disabled when not default
+DEFAULT_PSKR_MQTT_CACHE_HOST=pskr-mqtt-cache:5000
 DEFAULT_ALPHA_INSTALL="true"
 DEFAULT_PROXY_MAPS="false"
 DEFAULT_HOST_HOSTNAME=$HOSTNAME
@@ -176,7 +179,7 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":a:c:e:h:l:m:p:r:s:t:v:" opt; do
+    while getopts ":a:c:e:h:k:l:m:p:r:s:t:v:" opt; do
         case $opt in
             a)
                 REQUESTED_ALPHA_INSTALL="$OPTARG"
@@ -189,6 +192,9 @@ get_compose_opts() {
                 ;;
             h)
                 REQUESTED_HOST_HOSTNAME="$OPTARG"
+                ;;
+            k)
+                REQUESTED_PSKR_MQTT_CACHE_HOST="$OPTARG"
                 ;;
             l)
                 REQUESTED_EXTERNAL_HTTP_LOG="$OPTARG"
@@ -220,7 +226,6 @@ get_compose_opts() {
             v)
                 REQUESTED_VOACAP_SERVICE_HOST="$OPTARG"
                 ;;
-
             \?) # Handle invalid options
                 echo "Command '$COMMAND': Invalid option: -$OPTARG" >&2
                 exit 1
@@ -325,6 +330,7 @@ STICKY_EXTERNAL_HTTP_LOG="$ENABLE_EXTERNAL_HTTP_LOG"
 STICKY_CERT_PATH="$CERT_PATH"
 STICKY_MAP_SIZES="$MAP_SIZES"
 STICKY_VOACAP_SERVICE_HOST="$VOACAP_SERVICE_HOST"
+STICKY_PSKR_MQTT_CACHE_HOST="$PSKR_MQTT_CACHE_HOST"
 STICKY_ALPHA_INSTALL="$ALPHA_INSTALL"
 STICKY_PROXY_MAPS="$PROXY_MAPS"
 STICKY_HOST_HOSTNAME="$HOST_HOSTNAME"
@@ -471,6 +477,7 @@ is_ohb_installed() {
         echo "  External log:          '$STICKY_EXTERNAL_HTTP_LOG'"
         echo "  Map sizes:             '$STICKY_MAP_SIZES'"
         echo "  voacap-service:        '$STICKY_VOACAP_SERVICE_HOST'"
+        echo "  pskr-mqtt-cache:       '$STICKY_PSKR_MQTT_CACHE_HOST'"
         echo "  Alpha install:         '$STICKY_ALPHA_INSTALL'"
         echo "  Proxy maps:            '$STICKY_PROXY_MAPS'"
         echo "  Service hostname:      '$STICKY_HOST_HOSTNAME'"
@@ -982,6 +989,26 @@ determine_voacap_service_host() {
     fi
 }
 
+determine_pskr_mqtt_cache_host() {
+    # first precedence
+    if [ -n "$REQUESTED_PSKR_MQTT_CACHE_HOST" ]; then
+        PSKR_MQTT_CACHE_HOST=$REQUESTED_PSKR_MQTT_CACHE_HOST
+
+    # second precedence
+    elif [ -n "$STICKY_PSKR_MQTT_CACHE_HOST" ]; then
+        PSKR_MQTT_CACHE_HOST=$STICKY_PSKR_MQTT_CACHE_HOST
+
+    # third precedence
+    else
+        PSKR_MQTT_CACHE_HOST=$DEFAULT_PSKR_MQTT_CACHE_HOST
+
+    fi
+
+    if [ "$PSKR_MQTT_CACHE_HOST" == "-" ]; then
+        PSKR_MQTT_CACHE_HOST=$DEFAULT_PSKR_MQTT_CACHE_HOST
+    fi
+}
+
 determine_tag() {
     get_current_image_tag
 
@@ -1041,6 +1068,7 @@ docker_compose_yml() {
     determine_http_log
     determine_map_sizes
     determine_voacap_service_host
+    determine_pskr_mqtt_cache_host
     determine_alpha_install
     determine_proxy_maps
     determine_host_hostname
@@ -1072,6 +1100,7 @@ services:
       PSKR_UID: 1001
       WSPR_UID: 1002
       VOACAP_SERVICE_HOST: $VOACAP_SERVICE_HOST
+      PSKR_MQTT_CACHE_HOST: $PSKR_MQTT_CACHE_HOST
       $MAP_SIZES_MAPPING
       $ALPHA_INSTALL_MAPPING
       $PROXY_MAPS_MAPPING
@@ -1096,6 +1125,10 @@ services:
         max-size: "10m"
         max-file: "2"
 
+EOF
+
+    if [ $PSKR_MQTT_CACHE_HOST == $DEFAULT_PSKR_MQTT_CACHE_HOST ]; then
+        cat<<EOF
   pskr:
     container_name: pskr-mqtt-cache
     image: komacke/pskr-mqtt-cache:${PSKR_MQTT_CACHE_TAG:-$DEFAULT_PSKR_MQTT_CACHE_TAG}
@@ -1118,6 +1151,10 @@ services:
       web:
         condition: service_healthy
 
+EOF
+    fi  
+
+    cat<<EOF
   wspr-live-cache:
     container_name: wspr-live-cache
     image: komacke/wspr-live-cache:${WSPR_LIVE_CACHE_TAG:-$DEFAULT_WSPR_LIVE_CACHE_TAG}
@@ -1146,6 +1183,10 @@ services:
       web:
         condition: service_healthy
 
+EOF
+
+    if [ $VOACAP_SERVICE_HOST == $DEFAULT_VOACAP_SERVICE_HOST ]; then
+        cat<<EOF
   voacap-service:
     image: komacke/voacap-service:${VOACAP_SERVICE_TAG:-$DEFAULT_VOACAP_SERVICE_TAG}
     container_name: voacap-service
@@ -1166,6 +1207,10 @@ services:
         max-size: "10m"
         max-file: "2"
 
+EOF
+    fi  
+
+    cat<<EOF
 networks:
   ohb:
     driver: bridge
