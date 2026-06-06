@@ -587,7 +587,7 @@ docker_compose_up_voacap_service() {
 }
 
 docker_compose_down() {
-    docker_compose_yml && docker compose -f <(echo "$DOCKER_COMPOSE_YML") down -v
+    docker_compose_yml && docker compose -f <(echo "$DOCKER_COMPOSE_YML") down -v --remove-orphans
     RETVAL=$?
 
     if is_container_exists; then
@@ -608,7 +608,7 @@ docker_compose_down() {
 
 docker_compose_down_voacap_service() {
     IFS= DOCKER_COMPOSE_YML=$( docker_compose_yml_tmpl_voacap_service )
-    docker compose -f <(echo "$DOCKER_COMPOSE_YML") down -v
+    docker compose -f <(echo "$DOCKER_COMPOSE_YML") down -v --remove-orphans
     RETVAL=$?
     return $RETVAL
 }
