@@ -17,94 +17,139 @@
 
 # fetchPSKReporter.pl — HamClock backend PSKReporter proxy
 #
-# Proxies requests to the pskr-mqtt-cache service 
+# Non-blocking HTTP proxy. Forwards the HamClock query string to the
+# pskr-mqtt-cache service and streams the response back unchanged.
 #
-# CGI parameters:
-#   bygrid   — filter by sender grid prefix     (e.g. EL97 or EL97ab)
-#   ofgrid   — filter by receiver grid prefix   (e.g. EL97 or EL97ab)
-#   bycall   — filter by sender callsign        (e.g. W4BLD)
-#   ofcall   — filter by receiver callsign      (e.g. KO4AQF)
-#   maxage   — return spots newer than this many seconds (default 900, max 86400)
-#
-# Output format (one spot per line):
-#   flowStartSeconds,senderLocator,senderCallsign,receiverLocator,receiverCallsign,mode,frequency,sNR
+# This version runs Mojo's IOLoop and streams the response body to
+# stdout in chunks via syswrite(). Each chunk write reveals whether
+# HamClock is still listening: a closed pipe returns undef + EPIPE,
+# at which point we abort the upstream transaction.
 
 use strict;
 use warnings;
-use CGI;
-use LWP::UserAgent;
-use URI;
 
-my $CACHE_SERVICE = "http://pskr-mqtt-cache:5000";
-my $TIMEOUT       = 10;   # seconds
+use Mojo::UserAgent;
+use Mojo::IOLoop;
 
-my $q = CGI->new;
+# We do not want SIGPIPE to kill us — we want to detect EPIPE via syswrite's
+# return value and act on it ourselves.
+$SIG{PIPE} = 'IGNORE';
 
-my $bygrid = uc($q->param('bygrid') // '');
-my $ofgrid = uc($q->param('ofgrid') // '');
-my $bycall = uc($q->param('bycall') // '');
-my $ofcall = uc($q->param('ofcall') // '');
+# —————————————————————————
+# Configuration
+# —————————————————————————
 
-my $maxage = $q->param('maxage');
-$maxage = 900 if (!defined $maxage || $maxage eq '');
-$maxage =~ s/\D//g;
-$maxage = int($maxage || 900);
-$maxage = 60    if $maxage < 60;
-$maxage = 86400 if $maxage > 86400;
+my $host        = $ENV{PSKR_MQTT_CACHE_HOST} || 'pskr-mqtt-cache:5000';
+my $SERVICE_URL = "http://$host/ham/HamClock";
+my $ENDPOINT    = "$SERVICE_URL/fetchPSKReporter.pl";
+my $TIMEOUT     = 30;
 
-print $q->header(-type => 'text/plain; charset=ISO-8859-1');
+# —————————————————————————
+# Forward query string verbatim.
+# —————————————————————————
 
-if (!$bygrid && !$ofgrid && !$bycall && !$ofcall) {
-    print "Error: at least one of bygrid, ofgrid, bycall, or ofcall is required.\n";
-    exit;
+my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
+my $url = "$ENDPOINT?$qs";
+
+binmode(STDOUT);
+
+# Shared state for the IOLoop callbacks.
+my $headers_sent = 0;   # have we already emitted CGI headers to stdout?
+my $aborted      = 0;   # set when we cancel due to client disconnect
+
+my $ua = Mojo::UserAgent->new
+    ->connect_timeout(5)
+    ->request_timeout($TIMEOUT)
+    ->max_redirects(0);
+
+my $original_ua = $ENV{HTTP_USER_AGENT} // 'OHB-Proxy/1.0';
+my $tx = $ua->build_tx(GET => $url, {'User-Agent' => $original_ua});
+
+# Stream upstream body to stdout chunk-by-chunk. Each syswrite reveals
+# whether the downstream client is still there.
+$tx->res->content->unsubscribe('read')->on(read => sub {
+    my ($content, $bytes) = @_;
+    return if $aborted;
+
+    # Send CGI headers on first chunk (which is also when upstream headers
+    # are first available — Mojo populates them before firing 'read').
+    if (!$headers_sent) {
+        emit_headers($tx->res);
+        $headers_sent = 1;
+    }
+
+    return unless length $bytes;   # final 0-byte event signalling EOF
+
+    my $written = syswrite(STDOUT, $bytes);
+    if (!defined $written) {
+        # Client gone (EPIPE) or other write error. Cancel upstream so the
+        # socket closes and the disconnect propagates to pskr-mqtt-cache.
+        $aborted = 1;
+        $tx->res->error({message => "client write failed: $!"});
+        Mojo::IOLoop->stop;
+    }
+});
+
+$ua->start($tx => sub {
+    my ($ua, $tx) = @_;
+    Mojo::IOLoop->stop;
+});
+
+Mojo::IOLoop->start;
+
+# —————————————————————————
+# Post-mortem
+# —————————————————————————
+
+if ($aborted) {
+    exit 1;
 }
 
-sub valid_grid {
-    my ($g) = @_;
-    return 0 if !defined $g || $g eq '';
-    return ($g =~ /^[A-R]{2}[0-9]{2}([A-X]{2})?$/) ? 1 : 0;
+my $err = $tx->error;
+if ($err) {
+    if (!$headers_sent) {
+        my $msg = $err->{message} // 'unknown';
+        print STDERR "fetchPSKReporter: upstream failed: $msg ($url)\n";
+        my $body = "pskr-mqtt-cache unreachable: $msg\n";
+        syswrite(STDOUT,
+            "Status: 502 Bad Gateway\r\n" .
+            "Content-Type: text/plain\r\n" .
+            "\r\n" .
+            $body);
+    }
+    exit 1;
 }
 
-sub valid_call {
-    my ($c) = @_;
-    return 0 if !defined $c || $c eq '';
-    return ($c =~ /^[A-Z0-9\/]{3,15}$/) ? 1 : 0;
-}
-
-if ($bygrid && !valid_grid($bygrid)) {
-    print "Error: invalid bygrid locator.\n";
-    exit;
-}
-if ($ofgrid && !valid_grid($ofgrid)) {
-    print "Error: invalid ofgrid locator.\n";
-    exit;
-}
-if ($bycall && !valid_call($bycall)) {
-    print "Error: invalid bycall callsign.\n";
-    exit;
-}
-if ($ofcall && !valid_call($ofcall)) {
-    print "Error: invalid ofcall callsign.\n";
-    exit;
-}
-
-my $uri = URI->new("$CACHE_SERVICE/spots");
-$uri->query_form(
-    ($bygrid ? (bygrid => $bygrid) : ()),
-    ($ofgrid ? (ofgrid => $ofgrid) : ()),
-    ($bycall ? (bycall => $bycall) : ()),
-    ($ofcall ? (ofcall => $ofcall) : ()),
-    maxage => $maxage,
-);
-
-my $ua = LWP::UserAgent->new(timeout => $TIMEOUT);
-my $resp = $ua->get($uri->as_string);
-
-if ($resp->is_success) {
-    print $resp->decoded_content;
-} else {
-    print STDERR sprintf("pskr-cache error: %s %s\n", $resp->code, $resp->message);
-    print "Error: spot cache unavailable — please try again shortly.\n";
+if (!$headers_sent) {
+    emit_headers($tx->res);
+    my $body = $tx->res->body // '';
+    syswrite(STDOUT, $body) if length $body;
 }
 
 exit;
+
+sub emit_headers {
+    my $res = shift;
+    my $code = $res->code    // 502;
+    my $msg  = $res->message // 'Unknown';
+    my $hdr = "Status: $code $msg\r\n";
+
+    # Build the entire header block as one string and syswrite it to avoid
+    # mixing buffered print with unbuffered syswrite.
+    my $headers = $res->headers->to_hash(1);
+    for my $name (sort keys %$headers) {
+        next if $name =~ /^(Transfer-Encoding|Connection|Content-Length|Client-)/i;
+
+        # HamClock-specific casing fix
+        my $out_name = ($name =~ /^X-2Z-Lengths$/i) ? 'X-2Z-lengths' : $name;
+
+        my $values = $headers->{$name};
+        $values = [$values] unless ref $values eq 'ARRAY';
+        for my $v (@$values) {
+            $hdr .= "$out_name: $v\r\n";
+        }
+    }
+
+    $hdr .= "\r\n";
+    syswrite(STDOUT, $hdr);
+}
