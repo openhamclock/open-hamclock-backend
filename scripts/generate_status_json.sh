@@ -727,6 +727,11 @@ cat << HTML_HEAD
       max-width: 40vw;
     }
 
+    .dynamic-summary {
+      margin-bottom: 10px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
 
     /* ── Table ── */
     table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
@@ -809,6 +814,7 @@ cat << HTML_HEAD
       td.age { white-space: normal; }
       th, td { padding: 6px 8px; }
 
+
       .legend-label {
         flex-basis: 100%;
         margin-bottom: -2px;
@@ -865,20 +871,20 @@ cat << HTML_HEAD
 
 <div class="legend">
   <div class="legend-group">
-    <span class="legend-label">DYNAMIC:</span>
-    <div class="legend-item"><span class="badge ok">ACTIVE</span> data ok</div>
-    <div class="legend-item"><span class="badge warn">EMPTY</span> no data</div>
-    <div class="legend-item"><span class="badge static">IDLE</span> working/no spots</div>
-    <div class="legend-item"><span class="badge aged">TIMEOUT</span> connection lost</div>
-    <div class="legend-item"><span class="badge stale">FAILED</span> error</div>
-  </div>
-  <div class="legend-group">
     <span class="legend-label">FILES:</span>
     <div class="legend-item"><span class="badge ok">FRESH</span> updated</div>
     <div class="legend-item"><span class="badge warn">RECENT</span> late</div>
     <div class="legend-item"><span class="badge aged">AGED</span> old</div>
     <div class="legend-item"><span class="badge stale">STALE</span> stalled</div>
     <div class="legend-item"><span class="badge static">STATIC</span> baseline</div>
+  </div>
+  <div class="legend-group">
+    <span class="legend-label">DYNAMIC:</span>
+    <div class="legend-item"><span class="badge ok">ACTIVE</span> data ok</div>
+    <div class="legend-item"><span class="badge warn">EMPTY</span> no data</div>
+    <div class="legend-item"><span class="badge static">IDLE</span> working/no spots</div>
+    <div class="legend-item"><span class="badge aged">TIMEOUT</span> connection lost</div>
+    <div class="legend-item"><span class="badge stale">FAILED</span> error</div>
   </div>
 </div>
 
