@@ -77,8 +77,12 @@ my %csv_generators = (
 
 # HamClock rejects callsigns longer than 12 characters
 my $MAX_CALL  = 12;
-# POTA spots older than 1h will simply be deduped by fresher ones.
-my $MAX_AGE_S = 14400;
+# HamClock's ONTA age selector maxes out at 60 min (10/20/40/60), so it
+# discards anything older regardless. Bound the feed at 65 min: just past
+# HamClock's max so its selector stays the real filter, with ~5 min margin
+# to cover the rebuild interval. (SOTA is already capped at 60 min by its
+# spots/-1 API window; this mainly trims POTA and WWFF.)
+my $MAX_AGE_S = 3900;
 
 sub org_from_ref {
     my ($ref) = @_;
@@ -192,7 +196,6 @@ sub fetch_source {
     return $resp->decoded_content;
 }
 
-# make sure the park info CSVs exist before processing spots
 foreach my $file (keys %csv_generators) {
     unless (-e $file) {
         my $script = $csv_generators{$file};
