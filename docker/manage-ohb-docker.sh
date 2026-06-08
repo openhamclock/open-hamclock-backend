@@ -19,8 +19,8 @@
 OHB_MANAGER_VERSION=latest
 # tags to use
 DEFAULT_VOACAP_SERVICE_TAG=1.16
-DEFAULT_PSKR_MQTT_CACHE_TAG=1.13
-DEFAULT_WSPR_LIVE_CACHE_TAG=1.2
+DEFAULT_PSKR_MQTT_CACHE_TAG=1.14
+DEFAULT_WSPR_LIVE_CACHE_TAG=1.3
 
 GITHUB_LATEST_RELEASE_URL="https://api.github.com/repos/komacke/open-hamclock-backend/releases/latest"
 OHB_HTDOCS_DVC=ohb-htdocs
@@ -972,7 +972,11 @@ determine_host_hostname() {
 determine_voacap_service_host() {
     # first precedence
     if [ -n "$REQUESTED_VOACAP_SERVICE_HOST" ]; then
-        VOACAP_SERVICE_HOST=$REQUESTED_VOACAP_SERVICE_HOST
+        if [ "$REQUESTED_VOACAP_SERVICE_HOST" == - ]; then
+            VOACAP_SERVICE_HOST=$DEFAULT_VOACAP_SERVICE_HOST
+        else
+            VOACAP_SERVICE_HOST=$REQUESTED_VOACAP_SERVICE_HOST
+        fi
 
     # second precedence
     elif [ -n "$STICKY_VOACAP_SERVICE_HOST" ]; then
@@ -992,7 +996,11 @@ determine_voacap_service_host() {
 determine_pskr_mqtt_cache_host() {
     # first precedence
     if [ -n "$REQUESTED_PSKR_MQTT_CACHE_HOST" ]; then
-        PSKR_MQTT_CACHE_HOST=$REQUESTED_PSKR_MQTT_CACHE_HOST
+        if [ "$REQUESTED_PSKR_MQTT_CACHE_HOST" == - ]; then
+            PSKR_MQTT_CACHE_HOST=$DEFAULT_PSKR_MQTT_CACHE_HOST
+        else
+            PSKR_MQTT_CACHE_HOST=$REQUESTED_PSKR_MQTT_CACHE_HOST
+        fi
 
     # second precedence
     elif [ -n "$STICKY_PSKR_MQTT_CACHE_HOST" ]; then
