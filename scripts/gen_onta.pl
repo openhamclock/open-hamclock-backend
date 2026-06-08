@@ -57,7 +57,7 @@ use Text::CSV_XS;
 use File::Copy qw(move);
 
 my $POTA_URL = 'https://api.pota.app/spot';
-my $SOTA_URL = 'https://parksnpeaks.org/api/ALL';
+my $SOTA_URL = 'https://api2.sota.org.uk/api/spots/-1?filter=all';
 
 # WWFF source: Managed locally by fetch_wwff_cache.pl.
 my $WWFF_URL = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
@@ -77,9 +77,12 @@ my %csv_generators = (
 
 # HamClock rejects callsigns longer than 12 characters
 my $MAX_CALL  = 12;
-# Parks'n'Peaks returns up to ~4 hours of history so match that window.
-# POTA spots older than 1h will simply be deduped by fresher ones.
-my $MAX_AGE_S = 14400;
+# HamClock's ONTA age selector maxes out at 60 min (10/20/40/60), so it
+# discards anything older regardless. Bound the feed at 65 min: just past
+# HamClock's max so its selector stays the real filter, with ~5 min margin
+# to cover the rebuild interval. (SOTA is already capped at 60 min by its
+# spots/-1 API window; this mainly trims POTA and WWFF.)
+my $MAX_AGE_S = 3900;
 
 sub org_from_ref {
     my ($ref) = @_;
@@ -298,33 +301,49 @@ sub resolve_location {
 }
 
 # ---------------------------------------------------------------------------
-# Source 2: SOTA via Parks'n'Peaks  (https://parksnpeaks.org/api/ALL)
-# Fields: actCallsign, actFreq (MHz), actMode, actSiteID, actClass,
-#         actTime ("YYYY-MM-DD HH:MM:SS" UTC)
+# Source 2: SOTA via the official SOTAwatch API
+#           (https://api2.sota.org.uk/api/spots/-<hours>?filter=all)
+# Returns a bare JSON array of spot objects. Fields (camelCase):
+#   activatorCallsign, frequency (MHz, STRING e.g. "14.285"), mode,
+#   associationCode ("DM") + summitCode ("BM-362") -- the full SOTA
+#   reference is "associationCode/summitCode" (e.g. "DM/BM-362");
+#   timeStamp ("YYYY-MM-DDTHH:MM:SS" UTC, no zone suffix in practice).
+#   NOTE: spotter is in "callsign" (may be RBNHOLE/auto-spot); the
+#   activator we actually want is always in "activatorCallsign".
 # ---------------------------------------------------------------------------
 {
     my $body = fetch_source($SOTA_URL, $ua, 'SOTA');
     if (defined $body) {
         my $spots = eval { decode_json($body) };
         if ($@) {
-            warn "Parks'n'Peaks JSON parse failed: $@\n";
+            warn "SOTA API JSON parse failed: $@\n";
         } elsif (ref $spots eq 'ARRAY') {
             for my $s (@$spots) {
                 next unless ref $s eq 'HASH';
 
-                my $cls = uc($s->{actClass} // '');
-                next unless $cls eq 'SOTA';
+                # Skip test posts if a "type" field is ever present
+                # (current API omits it, so this is a harmless no-op).
+                next if uc($s->{type} // '') eq 'TEST';
 
-                my $call = clean_field($s->{actCallsign}); next unless length $call;
+                my $call = clean_field($s->{activatorCallsign}); next unless length $call;
                 next if length($call) > $MAX_CALL;
-                my $freq = $s->{actFreq}     // next;   # MHz
-                my $mode = clean_field($s->{actMode});
-                my $time = $s->{actTime}     // next;
-                my $park = clean_field($s->{actSiteID});
+                my $freq = $s->{frequency}   // next;   # MHz (string, e.g. "14.285")
+                my $mode = clean_field($s->{mode});
+                my $time = $s->{timeStamp}   // next;
 
-                # Parse "YYYY-MM-DD HH:MM:SS"
+                # Build the full summit reference the cache CSV is keyed on.
+                # The API splits it: associationCode="DM", summitCode="BM-362"
+                # -> reference "DM/BM-362". Guard in case either field ever
+                # already carries the prefix.
+                my $assoc  = clean_field($s->{associationCode});
+                my $summit = clean_field($s->{summitCode});
+                next unless length $summit;
+                my $park = ($summit =~ m{/}) ? $summit
+                         : (length $assoc ? "$assoc/$summit" : $summit);
+
+                # Parse "YYYY-MM-DDTHH:MM:SS" (ignore fractional seconds + Z)
                 my ($Y,$m,$d,$H,$M,$S) =
-                    $time =~ /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/
+                    $time =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/
                     or next;
 
                 my $epoch = timegm($S,$M,$H,$d,$m-1,$Y);
