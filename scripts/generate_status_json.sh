@@ -848,6 +848,10 @@ cat << HTML_HEAD
 
 <div class="summary">
   <div class="summary-item">
+    <span class="summary-label">Dynamic Endpoints</span>
+    <div class="summary-value">$(fmt_dyn_summary "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")</div>
+  </div>
+  <div class="summary-item">
     <span class="summary-label">Data Product Files</span>
     <div class="summary-value">$(fmt_stat_summary "$DATA_FRESH" "$DATA_RECENT" "$DATA_AGED" "$DATA_STALE" "$DATA_STATIC")</div>
   </div>
@@ -860,10 +864,6 @@ cat << HTML_HEAD
     <div class="summary-value">$(fmt_stat_summary "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">Dynamic Endpoints</span>
-    <div class="summary-value">$(fmt_dyn_summary "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")</div>
-  </div>
-  <div class="summary-item">
     <span class="summary-label">Unique HamClocks: 24h</span>
     <div class="summary-value">${DYN_COUNT_24H}</div>
   </div>
@@ -871,20 +871,20 @@ cat << HTML_HEAD
 
 <div class="legend">
   <div class="legend-group">
+    <span class="legend-label">DYNAMIC ENDPOINTS:</span>
+    <div class="legend-item"><span class="badge ok">ACTIVE</span> data ok</div>
+    <div class="legend-item"><span class="badge warn">EMPTY</span> no data</div>
+    <div class="legend-item"><span class="badge static">IDLE</span> working/no spots</div>
+    <div class="legend-item"><span class="badge aged">TIMEOUT</span> connection lost</div>
+    <div class="legend-item"><span class="badge stale">FAILED</span> error</div>
+  </div>
+  <div class="legend-group">
     <span class="legend-label">FILES:</span>
     <div class="legend-item"><span class="badge ok">FRESH</span> updated</div>
     <div class="legend-item"><span class="badge warn">RECENT</span> late</div>
     <div class="legend-item"><span class="badge aged">AGED</span> old</div>
     <div class="legend-item"><span class="badge stale">STALE</span> stalled</div>
     <div class="legend-item"><span class="badge static">STATIC</span> baseline</div>
-  </div>
-  <div class="legend-group">
-    <span class="legend-label">DYNAMIC:</span>
-    <div class="legend-item"><span class="badge ok">ACTIVE</span> data ok</div>
-    <div class="legend-item"><span class="badge warn">EMPTY</span> no data</div>
-    <div class="legend-item"><span class="badge static">IDLE</span> working/no spots</div>
-    <div class="legend-item"><span class="badge aged">TIMEOUT</span> connection lost</div>
-    <div class="legend-item"><span class="badge stale">FAILED</span> error</div>
   </div>
 </div>
 
