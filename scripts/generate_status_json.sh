@@ -666,7 +666,17 @@ cat << HTML_HEAD
     .summary-item:nth-last-child(2):nth-child(even) { border-bottom: 1px solid var(--border); }
 
     .summary-label { font-size: 0.62rem; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
-    .summary-value { font-family: 'IBM Plex Mono', monospace; font-size: 1.25rem; font-weight: 500; color: var(--accent); }
+    .summary-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.25rem;
+      font-weight: 500;
+      color: var(--accent);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+      min-height: 1.8rem;
+    }
 
     /* ── Legend ── */
     .legend {
@@ -715,22 +725,6 @@ cat << HTML_HEAD
       overflow: hidden;
       text-overflow: ellipsis;
       max-width: 40vw;
-    }
-
-    .summary-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .summary-row-label {
-      font-size: 0.7rem;
-      color: var(--muted);
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      flex-basis: 140px;
-      flex-shrink: 0;
     }
 
     .dynamic-summary {
@@ -820,10 +814,6 @@ cat << HTML_HEAD
       td.age { white-space: normal; }
       th, td { padding: 6px 8px; }
 
-      .summary-row-label {
-        flex-basis: 100%;
-        margin-bottom: -4px;
-      }
 
       .legend-label {
         flex-basis: 100%;
@@ -859,35 +849,27 @@ cat << HTML_HEAD
 <div class="summary">
   <div class="summary-item">
     <span class="summary-label">Data Product Files</span>
-    <span class="summary-value">${DATA_TOTAL}</span>
+    <div class="summary-value">$(fmt_stat_summary "$DATA_FRESH" "$DATA_RECENT" "$DATA_AGED" "$DATA_STALE" "$DATA_STATIC")</div>
   </div>
   <div class="summary-item">
     <span class="summary-label">SDO Files</span>
-    <span class="summary-value">${SDO_TOTAL}</span>
+    <div class="summary-value">$(fmt_stat_summary "$SDO_FRESH" "$SDO_RECENT" "$SDO_AGED" "$SDO_STALE" "$SDO_STATIC")</div>
   </div>
   <div class="summary-item">
     <span class="summary-label">Map Files</span>
-    <span class="summary-value">${MAP_TOTAL}</span>
+    <div class="summary-value">$(fmt_stat_summary "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")</div>
   </div>
   <div class="summary-item">
     <span class="summary-label">Dynamic Endpoints</span>
-    <span class="summary-value">${DYN_HEALTHY} / ${DYN_TOTAL}</span>
+    <div class="summary-value">$(fmt_dyn_summary "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")</div>
   </div>
   <div class="summary-item">
     <span class="summary-label">Unique HamClocks: 24h</span>
-    <span class="summary-value">${DYN_COUNT_24H}</span>
+    <div class="summary-value">${DYN_COUNT_24H}</div>
   </div>
 </div>
 
 <div class="legend">
-  <div class="legend-group">
-    <span class="legend-label">DYNAMIC:</span>
-    <div class="legend-item"><span class="badge ok">ACTIVE</span> data ok</div>
-    <div class="legend-item"><span class="badge warn">EMPTY</span> no data</div>
-    <div class="legend-item"><span class="badge static">IDLE</span> working/no spots</div>
-    <div class="legend-item"><span class="badge aged">TIMEOUT</span> connection lost</div>
-    <div class="legend-item"><span class="badge stale">FAILED</span> error</div>
-  </div>
   <div class="legend-group">
     <span class="legend-label">FILES:</span>
     <div class="legend-item"><span class="badge ok">FRESH</span> updated</div>
@@ -896,31 +878,13 @@ cat << HTML_HEAD
     <div class="legend-item"><span class="badge stale">STALE</span> stalled</div>
     <div class="legend-item"><span class="badge static">STATIC</span> baseline</div>
   </div>
-</div>
-
-<!-- Summary -->
-<div class="section" style="background: var(--panel);">
-  <div class="section-header">
-    <div class="section-icon"></div>
-    <span class="section-title">Summary</span>
-  </div>
-  <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 5px;">
-    <div class="summary-row">
-      <span class="summary-row-label">Dynamic:</span>
-      $(fmt_dyn_summary "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")
-    </div>
-    <div class="summary-row">
-      <span class="summary-row-label">Data Products:</span>
-      $(fmt_stat_summary "$DATA_FRESH" "$DATA_RECENT" "$DATA_AGED" "$DATA_STALE" "$DATA_STATIC")
-    </div>
-    <div class="summary-row">
-      <span class="summary-row-label">SDO:</span>
-      $(fmt_stat_summary "$SDO_FRESH" "$SDO_RECENT" "$SDO_AGED" "$SDO_STALE" "$SDO_STATIC")
-    </div>
-    <div class="summary-row">
-      <span class="summary-row-label">Maps:</span>
-      $(fmt_stat_summary "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")
-    </div>
+  <div class="legend-group">
+    <span class="legend-label">DYNAMIC:</span>
+    <div class="legend-item"><span class="badge ok">ACTIVE</span> data ok</div>
+    <div class="legend-item"><span class="badge warn">EMPTY</span> no data</div>
+    <div class="legend-item"><span class="badge static">IDLE</span> working/no spots</div>
+    <div class="legend-item"><span class="badge aged">TIMEOUT</span> connection lost</div>
+    <div class="legend-item"><span class="badge stale">FAILED</span> error</div>
   </div>
 </div>
 
