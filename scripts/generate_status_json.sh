@@ -698,7 +698,7 @@ cat << HTML_HEAD
       color: var(--muted);
       font-weight: 600;
       letter-spacing: 0.05em;
-      min-width: 65px;
+      min-width: 150px;
     }
     .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.65rem; color: var(--muted); }
 
@@ -802,7 +802,8 @@ cat << HTML_HEAD
 
     /* ── Mobile ── */
     @media (max-width: 600px) {
-      header   { padding: 14px 16px 12px; }
+      header   { padding: 14px 16px 12px; flex-direction: column; align-items: flex-start; gap: 16px; }
+      .header-right { text-align: left; align-items: flex-start; }
       .section { padding: 14px 16px; }
       .legend  { padding: 9px 16px; gap: 8px; }
       footer   { padding: 10px 16px; }
@@ -817,6 +818,7 @@ cat << HTML_HEAD
 
       .legend-label {
         flex-basis: 100%;
+        min-width: auto;
         margin-bottom: -2px;
       }
     }
