@@ -244,14 +244,19 @@ fi
 
 if [[ -n "$REMOTE_STATUS_HOST" ]]; then
     REMOTE_URL="http://${REMOTE_STATUS_HOST}/ham/HamClock/status.json"
-    REMOTE_JSON=$(curl -sSL --max-time 10 "$REMOTE_URL")
-    if [[ -n "$REMOTE_JSON" ]] && echo "$REMOTE_JSON" | jq -e . >/dev/null 2>&1; then
-        while IFS=$'\t' read -r rfname rcat mtime status; do
-            [[ -n "$rfname" ]] || continue
-            REMOTE_FILE_MOD["$rfname"]="$mtime"
-            REMOTE_FILE_STATUS["$rfname"]="$status"
-        done < <(echo "$REMOTE_JSON" | jq -r '.files[] | "\(.filename)\t\(.category)\t\(.modified_utc)\t\(.status)"' 2>/dev/null)
-    fi
+    # Attempt to fetch with up to 3 retries if data is missing or malformed
+    for i in {1..3}; do
+        REMOTE_JSON=$(curl -sSL --max-time 10 "$REMOTE_URL" 2>/dev/null)
+        if [[ -n "$REMOTE_JSON" ]] && echo "$REMOTE_JSON" | jq -e . >/dev/null 2>&1; then
+            while IFS=$'\t' read -r rfname rcat mtime status; do
+                [[ -n "$rfname" ]] || continue
+                REMOTE_FILE_MOD["$rfname"]="$mtime"
+                REMOTE_FILE_STATUS["$rfname"]="$status"
+            done < <(echo "$REMOTE_JSON" | jq -r '.files[] | "\(.filename)\t\(.category)\t\(.modified_utc)\t\(.status)"' 2>/dev/null)
+            break
+        fi
+        [ "$i" -lt 3 ] && sleep 2
+    done
 fi
 
 # ── Dynamic endpoints sidecar ────────────────────────────────────────────────
