@@ -68,12 +68,6 @@ DATA_DIR="/opt/hamclock-backend/htdocs/ham/HamClock"
 MAPS_DIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
 SDO_DIR="/opt/hamclock-backend/htdocs/ham/HamClock/SDO"
 
-# Detect if we are mirroring WWFF (no key) or maps (PROXY_MAPS set)
-CQGMA_API_KEY="${CQGMA_API_KEY:-}"
-if [ -z "$CQGMA_API_KEY" ] && [ -f "/opt/hamclock-backend/.env" ]; then
-    CQGMA_API_KEY=$(grep '^CQGMA_API_KEY=' /opt/hamclock-backend/.env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-fi
-
 # Determine the central mirror host
 MIRROR_HOST="${MIRROR:-ohb.hamclock.app}"
 
@@ -189,6 +183,28 @@ calculate_stats() {
     local label="$2"
     local -n _f=$3; local -n _r=$4; local -n _a=$5; local -n _s=$6; local -n _st=$7; local -n _t=$8
 
+    # Special case: If we are proxying maps, local files don't matter/exist.
+    # We iterate the remote status entries instead.
+    if [[ "$label" == "map" && -n "$REMOTE_STATUS_HOST" ]]; then
+        if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
+            for rfname in "${!REMOTE_FILE_STATUS[@]}"; do
+                [[ "${REMOTE_FILE_CAT[$rfname]}" == "map" ]] || continue
+                _t=$(( _t + 1 ))
+                case "${REMOTE_FILE_STATUS[$rfname]}" in
+                    FRESH)  _f=$(( _f + 1 )) ;;
+                    RECENT) _r=$(( _r + 1 )) ;;
+                    AGED)   _a=$(( _a + 1 )) ;;
+                    STALE)  _s=$(( _s + 1 )) ;;
+                    STATIC) _st=$(( _st + 1 )) ;;
+                esac
+            done
+        else
+            # Sync failed for proxied maps - report as stalled/error
+            _s=1; _t=1
+        fi
+        return
+    fi
+
     [ ! -d "$dir" ] && return
     while IFS= read -r -d '' filepath; do
         local filename=$(basename "$filepath")
@@ -197,14 +213,16 @@ calculate_stats() {
 
         local status_text
         local use_remote=0
-        if [[ "$label" == "map" && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
-            use_remote=1
-        elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+        if [[ "$label" == "map" && -n "$REMOTE_STATUS_HOST" ]]; then
             use_remote=1
         fi
 
         if [ "$use_remote" -eq 1 ]; then
-            status_text="${REMOTE_FILE_STATUS[$filename]}"
+            if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
+                status_text="${REMOTE_FILE_STATUS[$filename]:-STALE}"
+            else
+                status_text="SYNC_ERR"
+            fi
         else
             local mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
             local age_sec=$(( NOW_EPOCH - mod_epoch ))
@@ -219,7 +237,7 @@ calculate_stats() {
             FRESH)  _f=$(( _f + 1 )) ;;
             RECENT) _r=$(( _r + 1 )) ;;
             AGED)   _a=$(( _a + 1 )) ;;
-            STALE)  _s=$(( _s + 1 )) ;;
+            STALE|SYNC_ERR)  _s=$(( _s + 1 )) ;;
             STATIC) _st=$(( _st + 1 )) ;;
         esac
     done < <(find "$dir" -maxdepth 1 -type f -print0 2>/dev/null)
@@ -233,13 +251,13 @@ NOW_EPOCH=$(date -u +%s)
 # ── Remote Alpha Status ─────────────────────────────────────────────────────
 declare -A REMOTE_FILE_MOD=()
 declare -A REMOTE_FILE_STATUS=()
+declare -A REMOTE_FILE_CAT=()
 
+REMOTE_STATUS_SYNCED=0
 REMOTE_STATUS_HOST=""
 if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
     REMOTE_STATUS_HOST="${PROXY_MAPS}"
     [[ "$REMOTE_STATUS_HOST" == "true" ]] && REMOTE_STATUS_HOST="$MIRROR_HOST"
-elif [[ ! "$CQGMA_API_KEY" =~ ^GMA- ]]; then
-    REMOTE_STATUS_HOST="${MIRROR_HOST}"
 fi
 
 if [[ -n "$REMOTE_STATUS_HOST" ]]; then
@@ -252,7 +270,9 @@ if [[ -n "$REMOTE_STATUS_HOST" ]]; then
                 [[ -n "$rfname" ]] || continue
                 REMOTE_FILE_MOD["$rfname"]="$mtime"
                 REMOTE_FILE_STATUS["$rfname"]="$status"
+                REMOTE_FILE_CAT["$rfname"]="$rcat"
             done < <(echo "$REMOTE_JSON" | jq -r '.files[] | "\(.filename)\t\(.category)\t\(.modified_utc)\t\(.status)"' 2>/dev/null)
+            REMOTE_STATUS_SYNCED=1
             break
         fi
         [ "$i" -lt 3 ] && sleep 2
@@ -354,24 +374,30 @@ emit_file_row() {
     local mod_epoch mod_human age_sec status_class status_text
 
     local use_remote=0
-    if [[ "$label" == "map" && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
-        use_remote=1
-    elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+    if [[ "$label" == "map" && -n "$REMOTE_STATUS_HOST" ]]; then
         use_remote=1
     fi
 
     if [ "$use_remote" -eq 1 ]; then
-        mod_human="${REMOTE_FILE_MOD[$filename]}"
-        mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
-        age_sec=$(( NOW_EPOCH - mod_epoch ))
-        status_text="${REMOTE_FILE_STATUS[$filename]}"
-        case "$status_text" in
-            FRESH)  status_class="ok" ;;
-            RECENT) status_class="warn" ;;
-            AGED)   status_class="aged" ;;
-            STALE)  status_class="stale" ;;
-            *)      status_class="static" ;;
-        esac
+        if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
+            mod_human="${REMOTE_FILE_MOD[$filename]:-unknown}"
+            mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
+            age_sec=$(( NOW_EPOCH - mod_epoch ))
+            status_text="${REMOTE_FILE_STATUS[$filename]:-STALE}"
+            case "$status_text" in
+                FRESH)  status_class="ok" ;;
+                RECENT) status_class="warn" ;;
+                AGED)   status_class="aged" ;;
+                STALE)  status_class="stale" ;;
+                *)      status_class="static" ;;
+            esac
+        else
+            status_text="SYNC_ERR"
+            status_class="syncerr"
+            mod_human="unknown"
+            age_sec=0
+            age_str="n/a"
+        fi
     else
         mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
         mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
@@ -382,15 +408,16 @@ emit_file_row() {
         status_text="${class_text#* }"
     fi
 
-    local age_min=$(( age_sec / 60 ))
-    local age_h=$(( age_sec / 3600 ))
+    [ -z "${age_str:-}" ] && {
+        local age_min=$(( age_sec / 60 ))
+        local age_h=$(( age_sec / 3600 ))
 
-    local age_str
-    if   [ "$age_h"   -ge 48 ]; then age_str="$(( age_h / 24 ))d ago"
-    elif [ "$age_h"   -ge 1  ]; then age_str="${age_h}h ago"
-    elif [ "$age_min" -ge 1  ]; then age_str="${age_min}m ago"
-    else                             age_str="${age_sec}s ago"
-    fi
+        if   [ "$age_h"   -ge 48 ]; then age_str="$(( age_h / 24 ))d ago"
+        elif [ "$age_h"   -ge 1  ]; then age_str="${age_h}h ago"
+        elif [ "$age_min" -ge 1  ]; then age_str="${age_min}m ago"
+        else                             age_str="${age_sec}s ago"
+        fi
+    }
 
     echo "    <tr>"
     echo "      <td class='name'>${filename}</td>"
@@ -403,6 +430,22 @@ emit_file_row() {
 build_rows() {
     local dir="$1"
     local label="$2"
+
+    # Special handling for Maps Proxy
+    if [[ "$label" == "map" && -n "$REMOTE_STATUS_HOST" ]]; then
+        if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
+            local found=0
+            for rfname in $(echo "${!REMOTE_FILE_STATUS[@]}" | tr ' ' '\n' | sort); do
+                [[ "${REMOTE_FILE_CAT[$rfname]}" == "map" ]] || continue
+                found=1
+                emit_file_row "$dir/$rfname" "$label"
+            done
+            return
+        else
+            echo "    <tr><td colspan='4' class='missing'>⚠ Proxy Sync failed with ${REMOTE_STATUS_HOST}</td></tr>"
+            return
+        fi
+    fi
 
     if [ ! -d "$dir" ]; then
         echo "    <tr><td colspan='4' class='missing'>⚠ Directory not found: ${dir}</td></tr>"
@@ -528,6 +571,8 @@ build_json() {
         printf '  "version": "%s",\n'            "$VERSION"
         printf '  "hostname": "%s",\n'           "$HOST_HOSTNAME"
         printf '  "public_ip": "%s",\n'          "$PUBLIC_IP"
+        printf '  "remote_sync_host": "%s",\n'   "$REMOTE_STATUS_HOST"
+        printf '  "remote_sync_ok": %s,\n'       "$( [ "$REMOTE_STATUS_SYNCED" -eq 1 ] && echo "true" || echo "false" )"
         printf '  "summary": {\n'
         printf '    "data_product_files": %d,\n' "$DATA_TOTAL"
         printf '    "sdo_files": %d,\n'          "$SDO_TOTAL"
@@ -564,6 +609,15 @@ build_json() {
 
 # ── Write HTML ───────────────────────────────────────────────────────────────
 {
+SYNC_SUBTITLE=""
+if [[ -n "$REMOTE_STATUS_HOST" ]]; then
+    if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
+        SYNC_SUBTITLE="<div class='subtitle' style='color:var(--ok); font-weight:600;'>✓ Synced with ${REMOTE_STATUS_HOST}</div>"
+    else
+        SYNC_SUBTITLE="<div class='subtitle' style='color:var(--stale); font-weight:600;'>⚠ Sync failed: ${REMOTE_STATUS_HOST} (using local fallback)</div>"
+    fi
+fi
+
 cat << HTML_HEAD
 <!DOCTYPE html>
 <html lang="en">
@@ -783,6 +837,7 @@ cat << HTML_HEAD
     .badge.warn   { background: #f7f0de; color: var(--warn);   border: 1px solid #dfc882; }
     .badge.aged   { background: #f7ede0; color: var(--aged);   border: 1px solid #ddb882; }
     .badge.stale  { background: #f5e8e8; color: var(--stale);  border: 1px solid #d8a8a8; }
+    .badge.syncerr { background: #fff1f1; color: var(--stale); border: 1px solid #d8a8a8; font-style: italic; }
     .badge.static { background: #eeeeee; color: #7a7a7a;       border: 1px solid #d1d1d1; }
 
     /* ── Footer ── */
@@ -845,6 +900,7 @@ cat << HTML_HEAD
     <div class="callsign">${CALLSIGN}</div>
     <div class="subtitle">Data Product Status Board / ${VERSION}</div>
     <div class="subtitle" style="text-transform: none;">${HOST_HOSTNAME} (${PUBLIC_IP})</div>
+    ${SYNC_SUBTITLE}
   </div>
   <div class="header-right">
     <div class="clock-label">Page generated</div>
@@ -891,6 +947,7 @@ cat << HTML_HEAD
     <div class="legend-item"><span class="badge warn">RECENT</span> late</div>
     <div class="legend-item"><span class="badge aged">AGED</span> old</div>
     <div class="legend-item"><span class="badge stale">STALE</span> stalled</div>
+    <div class="legend-item"><span class="badge syncerr">SYNC_ERR</span> sync failed</div>
     <div class="legend-item"><span class="badge static">STATIC</span> baseline</div>
   </div>
 </div>
