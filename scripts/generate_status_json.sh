@@ -197,14 +197,18 @@ calculate_stats() {
 
         local status_text
         local use_remote=0
-        if [[ "$label" == "map" && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+        if [[ "$label" == "map" && -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
             use_remote=1
-        elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+        elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- ]]; then
             use_remote=1
         fi
 
         if [ "$use_remote" -eq 1 ]; then
-            status_text="${REMOTE_FILE_STATUS[$filename]}"
+            if [ "$REMOTE_FETCH_SUCCESS" -eq 1 ] && [ -n "${REMOTE_FILE_STATUS[$filename]:-}" ]; then
+                status_text="${REMOTE_FILE_STATUS[$filename]}"
+            else
+                status_text="TIMEOUT"
+            fi
         else
             local mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
             local age_sec=$(( NOW_EPOCH - mod_epoch ))
@@ -220,6 +224,7 @@ calculate_stats() {
             RECENT) _r=$(( _r + 1 )) ;;
             AGED)   _a=$(( _a + 1 )) ;;
             STALE)  _s=$(( _s + 1 )) ;;
+            TIMEOUT) _s=$(( _s + 1 )) ;;
             STATIC) _st=$(( _st + 1 )) ;;
         esac
     done < <(find "$dir" -maxdepth 1 -type f -print0 2>/dev/null)
@@ -242,6 +247,7 @@ elif [[ ! "$CQGMA_API_KEY" =~ ^GMA- ]]; then
     REMOTE_STATUS_HOST="${MIRROR_HOST}"
 fi
 
+REMOTE_FETCH_SUCCESS=0
 if [[ -n "$REMOTE_STATUS_HOST" ]]; then
     REMOTE_URL="http://${REMOTE_STATUS_HOST}/ham/HamClock/status.json"
     REMOTE_JSON=$(curl -sSL --max-time 10 "$REMOTE_URL")
@@ -251,6 +257,7 @@ if [[ -n "$REMOTE_STATUS_HOST" ]]; then
             REMOTE_FILE_MOD["$rfname"]="$mtime"
             REMOTE_FILE_STATUS["$rfname"]="$status"
         done < <(echo "$REMOTE_JSON" | jq -r '.files[] | "\(.filename)\t\(.category)\t\(.modified_utc)\t\(.status)"' 2>/dev/null)
+            REMOTE_FETCH_SUCCESS=1
     fi
 fi
 
@@ -349,22 +356,29 @@ emit_file_row() {
     local mod_epoch mod_human age_sec status_class status_text
 
     local use_remote=0
-    if [[ "$label" == "map" && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+    if [[ "$label" == "map" && -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
         use_remote=1
-    elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+    elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- ]]; then
         use_remote=1
     fi
 
     if [ "$use_remote" -eq 1 ]; then
-        mod_human="${REMOTE_FILE_MOD[$filename]}"
-        mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
-        age_sec=$(( NOW_EPOCH - mod_epoch ))
-        status_text="${REMOTE_FILE_STATUS[$filename]}"
+        if [ "$REMOTE_FETCH_SUCCESS" -eq 1 ] && [ -n "${REMOTE_FILE_STATUS[$filename]:-}" ]; then
+            mod_human="${REMOTE_FILE_MOD[$filename]}"
+            mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
+            age_sec=$(( NOW_EPOCH - mod_epoch ))
+            status_text="${REMOTE_FILE_STATUS[$filename]}"
+        else
+            mod_human="unknown"
+            age_sec=0
+            status_text="TIMEOUT"
+        fi
         case "$status_text" in
             FRESH)  status_class="ok" ;;
             RECENT) status_class="warn" ;;
             AGED)   status_class="aged" ;;
             STALE)  status_class="stale" ;;
+            TIMEOUT) status_class="aged" ;;
             *)      status_class="static" ;;
         esac
     else
@@ -476,17 +490,23 @@ build_json_entries() {
         local mod_epoch mod_human age_sec status_text
 
         local use_remote=0
-        if [[ "$label" == "map" && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+        if [[ "$label" == "map" && -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
             use_remote=1
-        elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- && -n "${REMOTE_FILE_MOD[$filename]:-}" ]]; then
+        elif [[ "$filename" == "wwff_spots.json" && ! "$CQGMA_API_KEY" =~ ^GMA- ]]; then
             use_remote=1
         fi
 
         if [ "$use_remote" -eq 1 ]; then
-            mod_human="${REMOTE_FILE_MOD[$filename]}"
-            mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
-            age_sec=$(( NOW_EPOCH - mod_epoch ))
-            status_text="${REMOTE_FILE_STATUS[$filename]}"
+            if [ "$REMOTE_FETCH_SUCCESS" -eq 1 ] && [ -n "${REMOTE_FILE_STATUS[$filename]:-}" ]; then
+                mod_human="${REMOTE_FILE_MOD[$filename]}"
+                mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
+                age_sec=$(( NOW_EPOCH - mod_epoch ))
+                status_text="${REMOTE_FILE_STATUS[$filename]}"
+            else
+                mod_human="unknown"
+                age_sec=0
+                status_text="TIMEOUT"
+            fi
         else
             mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
             mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
