@@ -54,6 +54,7 @@ THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
 THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_MAP="${THRESH_MAP:-3600 7200 14400}"
 THRESH_CLOUDS="${THRESH_CLOUDS:-3600 7200 14400}"
+THRESH_TROPO="${THRESH_TROPO:-12600 23400 43200}"
 THRESH_WX_MAP="${THRESH_WX_MAP:-3600 7200 14400}"
 THRESH_SOLAR_HISTORY="${THRESH_SOLAR_HISTORY:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_DEFAULT="${THRESH_DEFAULT:-3600 7200 14400}"
@@ -122,6 +123,10 @@ get_thresholds() {
         # map-[D|N]-*-Countries.* and map-[D|N]-*-Terrain* are static
         map-[DN]-*-Countries.*|map-[DN]-*-Terrain*|Terrain*)
             echo "STATIC"
+            return
+            ;;
+        map-[DN]-*-Tropo.*)
+            echo "$THRESH_TROPO"
             return
             ;;
         map-[DN]-*-Wx-mB.*|map-[DN]-*-Wx-in.*)
