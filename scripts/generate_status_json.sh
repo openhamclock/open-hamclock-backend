@@ -614,15 +614,6 @@ build_json() {
 
 # ── Write HTML ───────────────────────────────────────────────────────────────
 {
-SYNC_SUBTITLE=""
-if [[ -n "$REMOTE_STATUS_HOST" ]]; then
-    if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
-        SYNC_SUBTITLE="<div class='subtitle' style='color:var(--ok); font-weight:600;'>✓ Synced with ${REMOTE_STATUS_HOST}</div>"
-    else
-        SYNC_SUBTITLE="<div class='subtitle' style='color:var(--stale); font-weight:600;'>⚠ Sync failed: ${REMOTE_STATUS_HOST} (using local fallback)</div>"
-    fi
-fi
-
 cat << HTML_HEAD
 <!DOCTYPE html>
 <html lang="en">
@@ -905,7 +896,6 @@ cat << HTML_HEAD
     <div class="callsign">${CALLSIGN}</div>
     <div class="subtitle">Data Product Status Board / ${VERSION}</div>
     <div class="subtitle" style="text-transform: none;">${HOST_HOSTNAME} (${PUBLIC_IP})</div>
-    ${SYNC_SUBTITLE}
   </div>
   <div class="header-right">
     <div class="clock-label">Page generated</div>
