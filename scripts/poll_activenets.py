@@ -163,7 +163,7 @@ def build_csv(rows):
 
     return buf.getvalue()
 
-TMP_DIR = "/opt/hamclock-backend/tmp"
+TMP_DIR = "/opt/hamclock-backend/htdocs/tmp"
 
 def write_atomic(path, text):
     """Write text to path atomically using OHB temp dir + os.replace."""
