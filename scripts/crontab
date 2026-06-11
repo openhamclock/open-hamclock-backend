@@ -60,6 +60,8 @@ LANG=C
 
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/web15rss_fetch.py
 
+*/2 * * * *    $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/poll_activenets.py
+
 */2 * * * *    $SCRIPTS/cron-wrapper.sh OWM_REQS_PER_RUN=50 $VENV/bin/python3 $SCRIPTS/update_world_wx.py
 
 5 */8 * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_contest-calendar.sh
