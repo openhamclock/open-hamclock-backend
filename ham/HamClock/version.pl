@@ -32,8 +32,8 @@ if (scalar @params == 1 && $params[0] eq 'keywords') {
 }
 
 @params = grep { $_ ne '' } @params;
-my $has_ohb = grep { /^open-hamclock-backend$/ } @params;
-my $has_hc  = grep { /^hamclock$/ } @params;
+my $has_ohb = grep { /^open-hamclock-backend$/i } @params;
+my $has_hc  = grep { /^hamclock$/i } @params;
 
 # 1. Validate parameter count
 if (scalar @params > 1) {

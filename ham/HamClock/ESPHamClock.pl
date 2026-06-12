@@ -68,6 +68,32 @@ if ($query_file eq "ESPHamClock-main.zip") {
         $target_file = "ESPHamClock-V3.10.ino.bin";
         $content_type = 'application/octet-stream';
     }
+} elsif ($query_file =~ /^HamClockUserGuide(?:-V([\d\.]+))?\.pdf$/i) {
+    # Case D: User Guide request
+    my $req_version = $1;
+
+    # Determine current stable version
+    my $stable_version = "";
+    my $version_info_file = "$cache_dir/HC_RELEASE-stable.txt";
+    if (-e $version_info_file && open(my $fh, '<', $version_info_file)) {
+        $stable_version = <$fh>;
+        close($fh);
+        $stable_version =~ s/\R//g if $stable_version;
+    }
+
+    if (!defined $req_version) {
+        # Generic request: serve unless agent indicates beta
+        if ($user_agent !~ /^HamClock-.*\/.*b/i) {
+            $target_file = "HamClockUserGuide.pdf";
+            $content_type = 'application/pdf';
+        }
+    } else {
+        # Versioned request: only serve if it matches stable
+        if ($stable_version && $req_version eq $stable_version) {
+            $target_file = "HamClockUserGuide.pdf";
+            $content_type = 'application/pdf';
+        }
+    }
 }
 
 # 2. Check for file existence and serve
