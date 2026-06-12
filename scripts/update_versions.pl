@@ -231,6 +231,26 @@ foreach my $item (
         next;
     }
 
+    # 1c. Additionally download the User Guide if this is the stable track
+    if ($item->{type} eq 'stable') {
+        my $pdf_filename = "HamClockUserGuide.pdf";
+        my $pdf_path     = "$cache_dir/$pdf_filename";
+        my $pdf_url      = "https://github.com/$owner/$repo/releases/download/$orig_ver/$pdf_filename";
+
+        my ($pdf_asset) = $rel_data ? grep { $_->{name} eq $pdf_filename } @{$rel_data->{assets}} : ();
+        my $pdf_digest = $pdf_asset->{digest} // "";
+        $pdf_digest =~ s/^sha256://;
+
+        print "Downloading stable user guide from $pdf_url...\n";
+        my $pdf_resp = get_file_with_retry($ua, $pdf_url, $pdf_path, $pdf_digest);
+        if ($pdf_resp->is_success) {
+            chmod 0644, $pdf_path;
+            verify_and_cleanup($pdf_path, $pdf_digest, []);
+        } else {
+            print "Warning: Failed to download $pdf_filename. Status: " . $pdf_resp->status_line . "\n";
+        }
+    }
+
     # 1b. Additionally download the .ino.bin if this is the v3_ver (3.10)
     if ($item->{type} eq $v3_ver) {
         my $bin_filename = "ESPHamClock-V$display_version.ino.bin";
