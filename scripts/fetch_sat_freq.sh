@@ -71,7 +71,9 @@ done
 [[ -r "$ESATS_IN" ]] || { log "ERROR: cannot read input $ESATS_IN"; exit 1; }
 mkdir -p "$(dirname "$FREQ_OUT")"
 
-TMP_OUT="$(mktemp "${FREQ_OUT}.XXXXXX")"
+TMP_DIR="/opt/hamclock-backend/htdocs/tmp"
+mkdir -p "$TMP_DIR"
+TMP_OUT="$(mktemp -p "$TMP_DIR" "$(basename "$FREQ_OUT").XXXXXX")"
 trap 'rm -f "$TMP_OUT"' EXIT
 
 # --- Header ---
