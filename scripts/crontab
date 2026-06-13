@@ -68,6 +68,8 @@ LANG=C
 
 # Runs AMSAT Active Satellite Filter and builds TLEs
 0 */2 * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_tle.sh
+# SatNogs query
+5 4 * * *      $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_sat_freq.sh
 
 # Give NOAA time to breathe
 2,17,32,47 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_aurora.py
