@@ -734,16 +734,15 @@ cat << HTML_HEAD
       flex-direction: column;
       gap: 2px;
       position: relative;
-      transition: background 0.15s ease-in-out;
       transition: background 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
     }
-    .summary-item:hover { background: rgba(61,107,153,0.03); }
-    .summary-item:hover {
+    .summary-item:has(.summary-link):hover {
       background: #fff;
       box-shadow: inset 0 0 0 1px var(--accent), 0 4px 12px rgba(0,0,0,0.05);
       z-index: 10;
     }
-    .summary-item:hover .summary-label { color: var(--accent); }
+    .summary-item:has(.summary-link):active { transform: translateY(1px); }
+    .summary-item:has(.summary-link):hover .summary-label { color: var(--accent); }
 
     .summary-item:nth-child(2n) { border-right: none; }
 
@@ -768,7 +767,6 @@ cat << HTML_HEAD
       gap: 5px;
       align-items: center;
       min-height: 1.8rem;
-      position: relative;
     }
     .summary-link { text-decoration: none; color: inherit; display: block; }
     .summary-link::after {
@@ -777,7 +775,6 @@ cat << HTML_HEAD
       top: 0; right: 0; bottom: 0; left: 0;
       z-index: 1;
     }
-    .badge-link { text-decoration: none; cursor: pointer; }
     .badge-link {
       text-decoration: none;
       cursor: pointer;
