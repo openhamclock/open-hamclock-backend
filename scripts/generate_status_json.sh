@@ -707,7 +707,12 @@ cat << HTML_HEAD
       display: flex;
       flex-direction: column;
       gap: 2px;
+      position: relative;
+      transition: background 0.15s ease-in-out;
     }
+    .summary-item:hover { background: rgba(61,107,153,0.03); }
+    .summary-item:hover .summary-label { color: var(--accent); }
+
     .summary-item:nth-child(2n) { border-right: none; }
 
     /* If the total number of items is odd, make the last one span both columns */
@@ -731,6 +736,15 @@ cat << HTML_HEAD
       gap: 5px;
       align-items: center;
       min-height: 1.8rem;
+      position: relative;
+      z-index: 2;
+    }
+    .summary-link { text-decoration: none; color: inherit; }
+    .summary-link::after {
+      content: "";
+      position: absolute;
+      top: 0; right: 0; bottom: 0; left: 0;
+      z-index: 1;
     }
 
     /* ── Legend ── */
@@ -758,7 +772,7 @@ cat << HTML_HEAD
     .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.65rem; color: var(--muted); }
 
     /* ── Sections ── */
-    .section { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+    .section { padding: 20px 24px; border-bottom: 1px solid var(--border); scroll-margin-top: 20px; }
     .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
     .section-icon {
       width: 4px; height: 18px; background: var(--accent);
@@ -906,19 +920,19 @@ cat << HTML_HEAD
 
 <div class="summary">
   <div class="summary-item">
-    <span class="summary-label">Dynamic Endpoints</span>
+    <a href="#dynamic-endpoints" class="summary-link"><span class="summary-label">Dynamic Endpoints</span></a>
     <div class="summary-value">$(fmt_dyn_summary "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">Data Product Files</span>
+    <a href="#data-products" class="summary-link"><span class="summary-label">Data Product Files</span></a>
     <div class="summary-value">$(fmt_stat_summary "$DATA_FRESH" "$DATA_RECENT" "$DATA_AGED" "$DATA_STALE" "$DATA_STATIC")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">SDO Files</span>
+    <a href="#sdo" class="summary-link"><span class="summary-label">SDO Files</span></a>
     <div class="summary-value">$(fmt_stat_summary "$SDO_FRESH" "$SDO_RECENT" "$SDO_AGED" "$SDO_STALE" "$SDO_STATIC")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">Map Files</span>
+    <a href="#maps" class="summary-link"><span class="summary-label">Map Files</span></a>
     <div class="summary-value">$(fmt_stat_summary "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")</div>
   </div>
   <div class="summary-item">
@@ -948,7 +962,7 @@ cat << HTML_HEAD
 </div>
 
 <!-- Dynamic Endpoints -->
-<div class="section">
+<div class="section" id="dynamic-endpoints">
   <div class="section-header">
     <div class="section-icon dynamic-icon"></div>
     <span class="section-title">Dynamic Endpoints</span>
@@ -970,7 +984,7 @@ $(build_dynamic_rows)
 </div>
 
 <!-- Data Products -->
-<div class="section">
+<div class="section" id="data-products">
   <div class="section-header">
     <div class="section-icon"></div>
     <span class="section-title">Data Products</span>
@@ -996,7 +1010,7 @@ cat << HTML_SDO
 </div>
 
 <!-- SDO -->
-<div class="section">
+<div class="section" id="sdo">
   <div class="section-header">
     <div class="section-icon sdo-icon"></div>
     <span class="section-title">SDO</span>
@@ -1022,7 +1036,7 @@ cat << HTML_MAPS
 </div>
 
 <!-- Maps -->
-<div class="section">
+<div class="section" id="maps">
   <div class="section-header">
     <div class="section-icon maps-icon"></div>
     <span class="section-title">Maps</span>
