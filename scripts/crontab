@@ -45,6 +45,7 @@ LANG=C
 */5 * * * *    $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/swind_simple.py
 0-58/2 * * * * $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/bz_simple.py
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/flux_simple.py
+*/15 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/fetch_launches.py
 1-57/4 * * * * $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/xray_simple.py
 
 # the json updates "estimated" multiple times between its regular 3-hour updates. Also, the 3-hour update isn't
