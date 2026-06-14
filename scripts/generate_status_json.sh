@@ -735,8 +735,14 @@ cat << HTML_HEAD
       gap: 2px;
       position: relative;
       transition: background 0.15s ease-in-out;
+      transition: background 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
     }
     .summary-item:hover { background: rgba(61,107,153,0.03); }
+    .summary-item:hover {
+      background: #fff;
+      box-shadow: inset 0 0 0 1px var(--accent), 0 4px 12px rgba(0,0,0,0.05);
+      z-index: 10;
+    }
     .summary-item:hover .summary-label { color: var(--accent); }
 
     .summary-item:nth-child(2n) { border-right: none; }
@@ -773,6 +779,12 @@ cat << HTML_HEAD
       z-index: 1;
     }
     .badge-link { text-decoration: none; cursor: pointer; }
+    .badge-link {
+      text-decoration: none;
+      cursor: pointer;
+      position: relative;
+      z-index: 3;
+    }
     .badge-link:hover .badge { filter: brightness(0.95); }
 
     /* ── Legend ── */
