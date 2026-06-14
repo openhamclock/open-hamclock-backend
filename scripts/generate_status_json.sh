@@ -56,6 +56,7 @@ THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_MAP="${THRESH_MAP:-3600 7200 14400}"
 THRESH_CLOUDS="${THRESH_CLOUDS:-3600 7200 14400}"
 THRESH_TROPO="${THRESH_TROPO:-12600 23400 43200}"
+THRESH_LAUNCHES="${THRESH_LAUNCHES:-1200 2400 3600}"
 THRESH_WX_MAP="${THRESH_WX_MAP:-3600 7200 14400}"
 THRESH_SOLAR_HISTORY="${THRESH_SOLAR_HISTORY:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_DEFAULT="${THRESH_DEFAULT:-3600 7200 14400}"
@@ -97,6 +98,7 @@ DATA_SUBDIRS=(
     dxpeds
     esats
     geomag
+    launches
     solar-flux
     solar-wind
     ssn
@@ -157,6 +159,7 @@ get_thresholds() {
         NOAASpaceWX|dst|geomag|solar-flux|SDO) echo "$THRESH_SDO_SPACE"  ;;
         ssn)                                   echo "$THRESH_SSN"        ;;
         esats)                                 echo "$THRESH_ESATS"      ;;
+        launches)                              echo "$THRESH_LAUNCHES"   ;;
         contests)                              echo "$THRESH_CONTESTS"   ;;
         cty|dxpeds)                            echo "$THRESH_CTY_DX"     ;;
         map)                                   echo "$THRESH_MAP"        ;;
