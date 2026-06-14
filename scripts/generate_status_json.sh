@@ -981,7 +981,7 @@ cat << HTML_HEAD
     <div class="summary-value">$(fmt_stat_summary "maps" "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">Unique HamClocks: 24h</span>
+    <span class="summary-label">Unique HamClocks (24h)</span>
     <div class="summary-value">${DYN_COUNT_24H}</div>
   </div>
 </div>
