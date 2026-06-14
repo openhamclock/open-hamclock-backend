@@ -965,23 +965,23 @@ cat << HTML_HEAD
 
 <div class="summary">
   <div class="summary-item">
-    <a href="#dynamic-endpoints" class="summary-link"><span class="summary-label">Dynamic Endpoints</span></a>
+    <a href="#dynamic-endpoints" class="summary-link"><span class="summary-label">Dynamic Endpoints ($DYN_TOTAL)</span></a>
     <div class="summary-value">$(fmt_dyn_summary "dynamic-endpoints" "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")</div>
   </div>
   <div class="summary-item">
-    <a href="#data-products" class="summary-link"><span class="summary-label">Data Product Files</span></a>
+    <a href="#data-products" class="summary-link"><span class="summary-label">Data Product Files ($DATA_TOTAL)</span></a>
     <div class="summary-value">$(fmt_stat_summary "data-products" "$DATA_FRESH" "$DATA_RECENT" "$DATA_AGED" "$DATA_STALE" "$DATA_STATIC")</div>
   </div>
   <div class="summary-item">
-    <a href="#sdo" class="summary-link"><span class="summary-label">SDO Files</span></a>
+    <a href="#sdo" class="summary-link"><span class="summary-label">SDO Files ($SDO_TOTAL)</span></a>
     <div class="summary-value">$(fmt_stat_summary "sdo" "$SDO_FRESH" "$SDO_RECENT" "$SDO_AGED" "$SDO_STALE" "$SDO_STATIC")</div>
   </div>
   <div class="summary-item">
-    <a href="#maps" class="summary-link"><span class="summary-label">Map Files</span></a>
+    <a href="#maps" class="summary-link"><span class="summary-label">Map Files ($MAP_TOTAL)</span></a>
     <div class="summary-value">$(fmt_stat_summary "maps" "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">Unique HamClocks: 24h</span>
+    <span class="summary-label">Unique HamClocks (24h)</span>
     <div class="summary-value">${DYN_COUNT_24H}</div>
   </div>
 </div>
@@ -1010,7 +1010,7 @@ cat << HTML_HEAD
 <div class="section" id="dynamic-endpoints">
   <div class="section-header">
     <div class="section-icon dynamic-icon"></div>
-    <span class="section-title">Dynamic Endpoints</span>
+    <span class="section-title">Dynamic Endpoints ($DYN_TOTAL)</span>
     <span class="section-path">probe results from ${DYN_GENERATED:-never}</span>
   </div>
   <table>
@@ -1032,7 +1032,7 @@ $(build_dynamic_rows)
 <div class="section" id="data-products">
   <div class="section-header">
     <div class="section-icon"></div>
-    <span class="section-title">Data Products</span>
+    <span class="section-title">Data Products ($DATA_TOTAL)</span>
     <span class="section-path">${DATA_DIR}/{Bz,NOAASpaceWX,ONTA,aurora,contests,cty,drap,dst,dxpeds,esats,geomag,solar-flux,solar-wind,ssn,worldwx,xray}</span>
   </div>
   <table>
@@ -1058,7 +1058,7 @@ cat << HTML_SDO
 <div class="section" id="sdo">
   <div class="section-header">
     <div class="section-icon sdo-icon"></div>
-    <span class="section-title">SDO</span>
+    <span class="section-title">SDO ($SDO_TOTAL)</span>
     <span class="section-path">${SDO_DIR}</span>
   </div>
   <table>
@@ -1084,7 +1084,7 @@ cat << HTML_MAPS
 <div class="section" id="maps">
   <div class="section-header">
     <div class="section-icon maps-icon"></div>
-    <span class="section-title">Maps</span>
+    <span class="section-title">Maps ($MAP_TOTAL)</span>
     <span class="section-path">${MAPS_DIR}</span>
   </div>
   <table>
