@@ -261,6 +261,48 @@ PY
 }
 
 # ---------------------------------------------------------------------------
+# darken_night_wx  W H map_type tmpdir
+#
+# Applies brightness reduction to the Night map in-place so the grayline is
+# visible. Wx maps have global coverage so D and N are naturally similar
+# (N/D ≈ 0.69, contrast ≈ 31%). A factor of 0.53 brings N/D to 0.37,
+# matching DRAP's grayline contrast (63%).
+# ---------------------------------------------------------------------------
+darken_night_wx() {
+    local W="$1" H="$2" map_type="$3" tmpdir="$4"
+
+    local in_bmp="$tmpdir/map-N-${W}x${H}-${map_type}.bmp"
+    local out_z="${in_bmp}.z"
+    local stem="$TMPDIR/wxdark_N_${W}x${H}_${map_type}"
+    local png="${stem}.png"
+    local png_out="${stem}_out.png"
+    local raw="${stem}.raw"
+
+    [[ -f "$in_bmp" ]] || { echo "ERROR: missing Night Wx map $in_bmp" >&2; return 1; }
+
+    im_convert "$in_bmp" "$png" || {
+        echo "convert bmp->png failed for Night Wx ${map_type} ${W}x${H}" >&2; return 1; }
+
+    # Reduce to 53% brightness — brings N/D to 0.37, matching DRAP grayline contrast
+    im_convert "$png" -modulate 53,100,100 "$png_out" || {
+        echo "brightness darken failed for Night Wx ${map_type} ${W}x${H}" >&2; return 1; }
+
+    im_convert "$png_out" -resize "${W}x${H}!" RGB:"$raw" || {
+        echo "png->raw failed for darkened Night Wx ${map_type} ${W}x${H}" >&2; return 1; }
+
+    "$PYTHON_BIN" "$RAW2BMP_PY" --in "$raw" --out "$in_bmp" --width "$W" --height "$H" || {
+        echo "bmp rewrite failed for darkened Night Wx ${map_type} ${W}x${H}" >&2; return 1; }
+
+    "$PYTHON_BIN" - <<'PY' "$in_bmp" "$out_z"
+from hc_zlib import zcompress_file
+import sys
+zcompress_file(sys.argv[1], sys.argv[2], level=9)
+PY
+
+    rm -f "$png" "$png_out" "$raw"
+}
+
+# ---------------------------------------------------------------------------
 # overlay_black_borders_on_wx_output  tag W H map_type
 #
 # Composites black coastlines/borders OVER the final rendered Wx map.
@@ -432,6 +474,9 @@ for wh in "${SIZES[@]}"; do
 
         echo "Overlaying black borders on ${map_type} Night ${W}x${H}"
         overlay_black_borders_on_wx_output "N" "$W" "$H" "$map_type" "$TMPDIR"
+
+        echo "Darkening Night map for ${map_type} ${W}x${H}"
+        darken_night_wx "$W" "$H" "$map_type" "$TMPDIR"
 
         # Atomic move
         mv "$TMPDIR"/map-*-"${W}x${H}"-"${map_type}".bmp* "$OUTDIR/"
