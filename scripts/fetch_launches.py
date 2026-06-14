@@ -183,7 +183,7 @@ def fetch_launches():
 
     lines = []
     # Credit line (always first)
-    lines.append("The Space Devs / Launch Library 2 (thespacedevs.com)")
+    lines.append("Credit: Launch Library 2")
 
     count = 0
     for launch in results:
