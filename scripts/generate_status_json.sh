@@ -183,6 +183,11 @@ DATA_FRESH=0; DATA_RECENT=0; DATA_AGED=0; DATA_STALE=0; DATA_STATIC=0; DATA_TOTA
 SDO_FRESH=0;  SDO_RECENT=0;  SDO_AGED=0;  SDO_STALE=0;  SDO_STATIC=0;  SDO_TOTAL=0
 MAP_FRESH=0;  MAP_RECENT=0;  MAP_AGED=0;  MAP_STALE=0;  MAP_STATIC=0;  MAP_TOTAL=0
 
+# Tracking for first instances in HTML output
+TRACK_DATA_FRESH=0; TRACK_DATA_RECENT=0; TRACK_DATA_AGED=0; TRACK_DATA_STALE=0; TRACK_DATA_STATIC=0
+TRACK_SDO_FRESH=0;  TRACK_SDO_RECENT=0;  TRACK_SDO_AGED=0;  TRACK_SDO_STALE=0;  TRACK_SDO_STATIC=0
+TRACK_MAP_FRESH=0;  TRACK_MAP_RECENT=0;  TRACK_MAP_AGED=0;  TRACK_MAP_STALE=0;  TRACK_MAP_STATIC=0
+
 calculate_stats() {
     local dir="$1"
     local label="$2"
@@ -340,21 +345,21 @@ calculate_stats "$SDO_DIR" "SDO" SDO_FRESH SDO_RECENT SDO_AGED SDO_STALE SDO_STA
 calculate_stats "$MAPS_DIR" "map" MAP_FRESH MAP_RECENT MAP_AGED MAP_STALE MAP_STATIC MAP_TOTAL
 
 fmt_stat_summary() {
-    local f=$1 r=$2 a=$3 s=$4 st=$5
-    [ "$f" -gt 0 ] && echo -n "<span class='badge ok'>FRESH: $f</span> "
-    [ "$r" -gt 0 ] && echo -n "<span class='badge warn'>RECENT: $r</span> "
-    [ "$a" -gt 0 ] && echo -n "<span class='badge aged'>AGED: $a</span> "
-    [ "$s" -gt 0 ] && echo -n "<span class='badge stale'>STALE: $s</span> "
-    [ "$st" -gt 0 ] && echo -n "<span class='badge static'>STATIC: $st</span> "
+    local prefix=$1 f=$2 r=$3 a=$4 s=$5 st=$6
+    [ "$f" -gt 0 ] && echo -n "<a href='#${prefix}-FRESH' class='badge-link'><span class='badge ok'>FRESH: $f</span></a> "
+    [ "$r" -gt 0 ] && echo -n "<a href='#${prefix}-RECENT' class='badge-link'><span class='badge warn'>RECENT: $r</span></a> "
+    [ "$a" -gt 0 ] && echo -n "<a href='#${prefix}-AGED' class='badge-link'><span class='badge aged'>AGED: $a</span></a> "
+    [ "$s" -gt 0 ] && echo -n "<a href='#${prefix}-STALE' class='badge-link'><span class='badge stale'>STALE: $s</span></a> "
+    [ "$st" -gt 0 ] && echo -n "<a href='#${prefix}-STATIC' class='badge-link'><span class='badge static'>STATIC: $st</span></a> "
 }
 
 fmt_dyn_summary() {
-    local active=$1 idle=$2 empty=$3 timeout=$4 failed=$5
-    [ "$active" -gt 0 ]  && echo -n "<span class='badge ok'>ACTIVE: $active</span> "
-    [ "$idle" -gt 0 ]    && echo -n "<span class='badge static'>IDLE: $idle</span> "
-    [ "$empty" -gt 0 ]   && echo -n "<span class='badge warn'>EMPTY: $empty</span> "
-    [ "$timeout" -gt 0 ] && echo -n "<span class='badge aged'>TIMEOUT: $timeout</span> "
-    [ "$failed" -gt 0 ]  && echo -n "<span class='badge stale'>FAILED: $failed</span> "
+    local prefix=$1 active=$2 idle=$3 empty=$4 timeout=$5 failed=$6
+    [ "$active" -gt 0 ]  && echo -n "<a href='#${prefix}-ACTIVE' class='badge-link'><span class='badge ok'>ACTIVE: $active</span></a> "
+    [ "$idle" -gt 0 ]    && echo -n "<a href='#${prefix}-IDLE' class='badge-link'><span class='badge static'>IDLE: $idle</span></a> "
+    [ "$empty" -gt 0 ]   && echo -n "<a href='#${prefix}-EMPTY' class='badge-link'><span class='badge warn'>EMPTY: $empty</span></a> "
+    [ "$timeout" -gt 0 ] && echo -n "<a href='#${prefix}-TIMEOUT' class='badge-link'><span class='badge aged'>TIMEOUT: $timeout</span></a> "
+    [ "$failed" -gt 0 ]  && echo -n "<a href='#${prefix}-FAILED' class='badge-link'><span class='badge stale'>FAILED: $failed</span></a> "
 }
 
 dyn_badge_class() { # This function is fine as is, it just maps states to CSS classes
@@ -413,6 +418,20 @@ emit_file_row() {
         status_text="${class_text#* }"
     fi
 
+    local id_attr=""
+    local track_var=""
+    case "$label" in
+        map) track_var="TRACK_MAP_${status_text}" ;;
+        SDO) track_var="TRACK_SDO_${status_text}" ;;
+        *)   track_var="TRACK_DATA_${status_text}" ;;
+    esac
+
+    if [ "${!track_var:-0}" -eq 0 ]; then
+        local prefix="data-products"; [ "$label" = "map" ] && prefix="maps"; [ "$label" = "SDO" ] && prefix="sdo"
+        id_attr="id='${prefix}-${status_text}'"
+        eval "${track_var}=1"
+    fi
+
     [ -z "${age_str:-}" ] && {
         local age_min=$(( age_sec / 60 ))
         local age_h=$(( age_sec / 3600 ))
@@ -428,7 +447,7 @@ emit_file_row() {
     echo "      <td class='name'>${filename}</td>"
     echo "      <td class='category'>${label}</td>"
     echo "      <td class='timestamp'>${mod_human} UTC</td>"
-    echo "      <td class='age'><span class='badge ${status_class}'>${status_text}</span><span class='age-str'> ${age_str}</span></td>"
+    echo "      <td class='age'><span ${id_attr} class='badge ${status_class}'>${status_text}</span><span class='age-str'> ${age_str}</span></td>"
     echo "    </tr>"
 }
 
@@ -496,20 +515,23 @@ build_dynamic_rows() {
     fi
 
     echo "$DYNAMIC_SIDECAR_CONTENT" | jq -r '
-        .endpoints[] |
+        .endpoints as $eps |
+        $eps | to_entries | .[] |
+        .key as $idx | .value as $e |
+        (if ($eps | map(.status) | index($e.status)) == $idx then "id=\"dynamic-endpoints-" + $e.status + "\" " else "" end) as $id_attr |
         "    <tr>" +
-        "<td class=\"name\">" + .path + "</td>" +
-        "<td class=\"category\">" + (.http_code|tostring) + "</td>" +
-        "<td class=\"timestamp\">" + (.elapsed_ms|tostring) + " ms</td>" +
-        "<td class=\"age\"><span class=\"badge " +
-          (if   .status=="ACTIVE"  then "ok"
-           elif .status=="IDLE"    then "static"
-           elif .status=="EMPTY"   then "warn"
-           elif .status=="TIMEOUT" then "aged"
+        "<td class=\"name\">" + $e.path + "</td>" +
+        "<td class=\"category\">" + ($e.http_code|tostring) + "</td>" +
+        "<td class=\"timestamp\">" + ($e.elapsed_ms|tostring) + " ms</td>" +
+        "<td class=\"age\"><span " + $id_attr + "class=\"badge " +
+          (if   $e.status=="ACTIVE"  then "ok"
+           elif $e.status=="IDLE"    then "static"
+           elif $e.status=="EMPTY"   then "warn"
+           elif $e.status=="TIMEOUT" then "aged"
            else "stale" end) +
-        "\">" + .status + "</span></td>" +
+        "\">" + $e.status + "</span></td>" +
         "</tr>"
-    ' "$DYNAMIC_SIDECAR"
+    '
 }
 
 # ── JSON builder ─────────────────────────────────────────────────────────────
@@ -645,6 +667,10 @@ cat << HTML_HEAD
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       background: var(--bg);
       color: var(--text);
@@ -707,7 +733,12 @@ cat << HTML_HEAD
       display: flex;
       flex-direction: column;
       gap: 2px;
+      position: relative;
+      transition: background 0.15s ease-in-out;
     }
+    .summary-item:hover { background: rgba(61,107,153,0.03); }
+    .summary-item:hover .summary-label { color: var(--accent); }
+
     .summary-item:nth-child(2n) { border-right: none; }
 
     /* If the total number of items is odd, make the last one span both columns */
@@ -731,7 +762,18 @@ cat << HTML_HEAD
       gap: 5px;
       align-items: center;
       min-height: 1.8rem;
+      position: relative;
+      z-index: 2;
     }
+    .summary-link { text-decoration: none; color: inherit; }
+    .summary-link::after {
+      content: "";
+      position: absolute;
+      top: 0; right: 0; bottom: 0; left: 0;
+      z-index: 1;
+    }
+    .badge-link { text-decoration: none; cursor: pointer; }
+    .badge-link:hover .badge { filter: brightness(0.95); }
 
     /* ── Legend ── */
     .legend {
@@ -758,7 +800,7 @@ cat << HTML_HEAD
     .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.65rem; color: var(--muted); }
 
     /* ── Sections ── */
-    .section { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+    .section { padding: 20px 24px; border-bottom: 1px solid var(--border); scroll-margin-top: 20px; }
     .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
     .section-icon {
       width: 4px; height: 18px; background: var(--accent);
@@ -828,6 +870,7 @@ cat << HTML_HEAD
       display: inline-block; padding: 2px 8px; border-radius: 3px;
       font-size: 0.63rem; font-family: 'IBM Plex Sans', sans-serif;
       font-weight: 600; letter-spacing: 0.03em; vertical-align: middle;
+      scroll-margin-top: 30px;
     }
     .badge.ok     { background: #e8f4ee; color: var(--ok);     border: 1px solid #b8d8c5; }
     .badge.warn   { background: #f7f0de; color: var(--warn);   border: 1px solid #dfc882; }
@@ -906,20 +949,20 @@ cat << HTML_HEAD
 
 <div class="summary">
   <div class="summary-item">
-    <span class="summary-label">Dynamic Endpoints</span>
-    <div class="summary-value">$(fmt_dyn_summary "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")</div>
+    <a href="#dynamic-endpoints" class="summary-link"><span class="summary-label">Dynamic Endpoints</span></a>
+    <div class="summary-value">$(fmt_dyn_summary "dynamic-endpoints" "$DYN_ACTIVE" "$DYN_IDLE" "$DYN_EMPTY" "$DYN_TIMEOUT" "$DYN_FAILED")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">Data Product Files</span>
-    <div class="summary-value">$(fmt_stat_summary "$DATA_FRESH" "$DATA_RECENT" "$DATA_AGED" "$DATA_STALE" "$DATA_STATIC")</div>
+    <a href="#data-products" class="summary-link"><span class="summary-label">Data Product Files</span></a>
+    <div class="summary-value">$(fmt_stat_summary "data-products" "$DATA_FRESH" "$DATA_RECENT" "$DATA_AGED" "$DATA_STALE" "$DATA_STATIC")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">SDO Files</span>
-    <div class="summary-value">$(fmt_stat_summary "$SDO_FRESH" "$SDO_RECENT" "$SDO_AGED" "$SDO_STALE" "$SDO_STATIC")</div>
+    <a href="#sdo" class="summary-link"><span class="summary-label">SDO Files</span></a>
+    <div class="summary-value">$(fmt_stat_summary "sdo" "$SDO_FRESH" "$SDO_RECENT" "$SDO_AGED" "$SDO_STALE" "$SDO_STATIC")</div>
   </div>
   <div class="summary-item">
-    <span class="summary-label">Map Files</span>
-    <div class="summary-value">$(fmt_stat_summary "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")</div>
+    <a href="#maps" class="summary-link"><span class="summary-label">Map Files</span></a>
+    <div class="summary-value">$(fmt_stat_summary "maps" "$MAP_FRESH" "$MAP_RECENT" "$MAP_AGED" "$MAP_STALE" "$MAP_STATIC")</div>
   </div>
   <div class="summary-item">
     <span class="summary-label">Unique HamClocks: 24h</span>
@@ -948,7 +991,7 @@ cat << HTML_HEAD
 </div>
 
 <!-- Dynamic Endpoints -->
-<div class="section">
+<div class="section" id="dynamic-endpoints">
   <div class="section-header">
     <div class="section-icon dynamic-icon"></div>
     <span class="section-title">Dynamic Endpoints</span>
@@ -970,7 +1013,7 @@ $(build_dynamic_rows)
 </div>
 
 <!-- Data Products -->
-<div class="section">
+<div class="section" id="data-products">
   <div class="section-header">
     <div class="section-icon"></div>
     <span class="section-title">Data Products</span>
@@ -996,7 +1039,7 @@ cat << HTML_SDO
 </div>
 
 <!-- SDO -->
-<div class="section">
+<div class="section" id="sdo">
   <div class="section-header">
     <div class="section-icon sdo-icon"></div>
     <span class="section-title">SDO</span>
@@ -1022,7 +1065,7 @@ cat << HTML_MAPS
 </div>
 
 <!-- Maps -->
-<div class="section">
+<div class="section" id="maps">
   <div class="section-header">
     <div class="section-icon maps-icon"></div>
     <span class="section-title">Maps</span>
