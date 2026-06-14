@@ -50,6 +50,7 @@ THRESH_SDO_SPACE="${THRESH_SDO_SPACE:-3600 7200 14400}"
 THRESH_SSN="${THRESH_SSN:-7200 14400 28800}" # 2h 4h 8h
 THRESH_SSN_HISTORY="${THRESH_SSN_HISTORY:-86400 172800 259200}" # 1d 2d 3d
 THRESH_ESATS="${THRESH_ESATS:-3600 7200 14400}"
+THRESH_ESATS_FREQ="${THRESH_ESATS_FREQ:-90000 144000 180000}" # 25h 40h 50h
 THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
 THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_MAP="${THRESH_MAP:-3600 7200 14400}"
@@ -139,6 +140,10 @@ get_thresholds() {
             ;;
         ssn-history.txt)
             echo "$THRESH_SSN_HISTORY"
+            return
+            ;;
+        esats-freq.txt)
+            echo "$THRESH_ESATS_FREQ"
             return
             ;;
     esac
@@ -381,7 +386,7 @@ emit_file_row() {
     filename=$(basename "$filepath")
     [ "$filename" = "ignore" ] && return
 
-    local mod_epoch mod_human age_sec status_class status_text
+    local mod_epoch mod_human age_sec status_class status_text age_str class_text
 
     local use_remote=0
     if [[ "$label" == "map" && -n "$REMOTE_STATUS_HOST" ]]; then
