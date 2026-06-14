@@ -769,9 +769,8 @@ cat << HTML_HEAD
       align-items: center;
       min-height: 1.8rem;
       position: relative;
-      z-index: 2;
     }
-    .summary-link { text-decoration: none; color: inherit; }
+    .summary-link { text-decoration: none; color: inherit; display: block; }
     .summary-link::after {
       content: "";
       position: absolute;
