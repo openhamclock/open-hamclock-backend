@@ -254,12 +254,20 @@ for DN in D N; do
         convert "$PNG_FIXED" RGB:"$RAW" || { echo "    raw extract failed for ${DN} ${SZ}"; continue; }
         python3 - << EOF
 import struct, sys
-inraw, outbmp, W, H = "$RAW", "$BMP", int($W), int($H)
+from PIL import Image, ImageEnhance
+inraw, outbmp, W, H, DN = "$RAW", "$BMP", int($W), int($H), "$DN"
 
 raw = open(inraw, "rb").read()
 exp = W*H*3
 if len(raw) != exp:
     raise SystemExit(f"RAW size {len(raw)} != expected {exp}")
+
+# Darken Night image so the grayline is visible.
+# MUF-RT has global coverage so D and N are naturally very similar (N/D=0.84).
+# Applying 0.44 brings N/D to 0.37, matching DRAP's grayline contrast.
+if DN == "N":
+    img = Image.frombytes("RGB", (W, H), raw)
+    raw = ImageEnhance.Brightness(img).enhance(0.44).tobytes()
 
 pix = bytearray(W*H*2)
 j = 0
