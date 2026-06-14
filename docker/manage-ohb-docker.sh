@@ -322,7 +322,7 @@ save_sticky_vars() {
     local TMP_STICKY
     TMP_STICKY=$(mktemp "${STICKY_ENV_FILE}.XXXXXX") || return 1
 
-    cat<<EOF > "$TMP_STICKY"
+    if cat<<EOF > "$TMP_STICKY"; then
 STICKY_HTTP_PORT="$HTTP_PORT"
 STICKY_HTTPS_PORT="$HTTPS_PORT"
 STICKY_LIGHTTPD_ENV_FILE="$ENV_FILE"
@@ -335,8 +335,12 @@ STICKY_ALPHA_INSTALL="$ALPHA_INSTALL"
 STICKY_PROXY_MAPS="$PROXY_MAPS"
 STICKY_HOST_HOSTNAME="$HOST_HOSTNAME"
 EOF
-
-    mv "$TMP_STICKY" "$STICKY_ENV_FILE"
+        mv "$TMP_STICKY" "$STICKY_ENV_FILE"
+    else
+        echo "ERROR: Failed to write configuration to temporary file. Disk might be full." >&2
+        rm -f "$TMP_STICKY"
+        return 1
+    fi
 }
 
 upgrade_this_script() {
@@ -624,6 +628,7 @@ docker_compose_reset() {
 
 docker_compose_restart() {
     docker restart $CONTAINER
+    RETVAL=$?
 }
 
 generate_docker_compose() {
@@ -678,6 +683,7 @@ copy_env_to_container() {
     if is_container_exists; then
         if [ -r "$ENV_FILE" ]; then
             docker cp $ENV_FILE $CONTAINER:/opt/hamclock-backend/.env
+            RETVAL=$?
         else
             echo "ERROR: ENV file not found: '$ENV_FILE'" >&2
             RETVAL=1
