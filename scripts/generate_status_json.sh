@@ -667,6 +667,10 @@ cat << HTML_HEAD
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       background: var(--bg);
       color: var(--text);
@@ -866,6 +870,7 @@ cat << HTML_HEAD
       display: inline-block; padding: 2px 8px; border-radius: 3px;
       font-size: 0.63rem; font-family: 'IBM Plex Sans', sans-serif;
       font-weight: 600; letter-spacing: 0.03em; vertical-align: middle;
+      scroll-margin-top: 30px;
     }
     .badge.ok     { background: #e8f4ee; color: var(--ok);     border: 1px solid #b8d8c5; }
     .badge.warn   { background: #f7f0de; color: var(--warn);   border: 1px solid #dfc882; }
