@@ -32,14 +32,20 @@ fi
 cp "$STOCK_FILES_LIST" "$FILES_LIST"
 
 while IFS= read -r file; do
-    if [ -d "$DVC_MOUNT/$file" ]; then
-        echo "$THIS: Removing directory: $DVC_MOUNT/$file"
-	    rmdir "$DVC_MOUNT/$file"
-    elif [ -f "$DVC_MOUNT/$file" ]; then
-        echo "$THIS: Deleting file: $DVC_MOUNT/$file"
-	    rm -f "$DVC_MOUNT/$file"
+    if [ -d "${DVC_MOUNT}${file}" ]; then
+        # remove only the directory contents if it ends in slash
+        if [[ "${DVC_MOUNT}${file}" == */ ]]; then
+            echo "$THIS: Removing contents of directory: ${DVC_MOUNT}${file}"
+	        rm -Rf "${DVC_MOUNT}${file}"*
+        else
+            echo "$THIS: Removing directory: ${DVC_MOUNT}${file}"
+	        rm -Rf "${DVC_MOUNT}${file}"
+        fi
+    elif [ -f "${DVC_MOUNT}${file}" ]; then
+        echo "$THIS: Deleting file: ${DVC_MOUNT}${file}"
+	    rm -f "${DVC_MOUNT}${file}"
     else
-        echo "$THIS: No such file or directory: $DVC_MOUNT/$file"
+        echo "$THIS: No such file or directory: ${DVC_MOUNT}${file}"
     fi
 done < <(grep -vE '^(\s*#|\s*$)' "$FILES_LIST" | tr -d '\r')
 
