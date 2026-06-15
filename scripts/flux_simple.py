@@ -16,6 +16,7 @@ Phases:
 2) wwv.txt:
    - parse "Solar flux NNN"
    - repeat that value 3x
+   - if unavailable (e.g. "???"), fall back to the most recent DSD value
 
 3) 27-day outlook tail (3 days):
    - parse 27-day-outlook.txt
@@ -30,7 +31,7 @@ import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from urllib.request import Request, urlopen
 
 
@@ -87,16 +88,15 @@ def parse_dsd_fluxes(text: str) -> List[int]:
     return fluxes[-30:]
 
 
-def parse_wwv_flux(text: str) -> int:
+def parse_wwv_flux(text: str) -> Optional[int]:
     """
-    Parse only the WWV line:
-      'Solar flux 110 and estimated planetary A-index 36.'
-    Return 110.
+    Parse the WWV line:
+      'Solar flux NNN and estimated planetary A-index 36.'
+    Returns the integer flux value, or None if the value is unavailable
+    (e.g. NOAA publishes '???' during a data outage).
     """
     m = re.search(r"\bSolar flux\s+(\d{1,3})\b", text, re.I)
-    if not m:
-        raise ValueError("Could not parse WWV 'Solar flux NNN' line")
-    return int(m.group(1))
+    return int(m.group(1)) if m else None
 
 
 def parse_outlook_fluxes(text: str, after_date: date, count: int = 3) -> List[int]:
@@ -159,7 +159,7 @@ def generate_solarflux_99(
     dsd_text: str,
     wwv_text: str,
     outlook_text: str,
-    today: date | None = None,
+    today: Optional[date] = None,
     debug: bool = False,
 ) -> List[int]:
     if today is None:
@@ -169,8 +169,17 @@ def generate_solarflux_99(
     dsd_fluxes_30 = parse_dsd_fluxes(dsd_text)
     phase1_daily = dsd_fluxes_30[1:]  # 29 values
 
-    # Phase 2: WWV observed flux (1 day)
+    # Phase 2: WWV observed flux (1 day); fall back to most recent DSD if unavailable
     wwv_flux = parse_wwv_flux(wwv_text)
+    if wwv_flux is None:
+        wwv_flux = dsd_fluxes_30[-1]
+        print(
+            f"WARNING: WWV Solar flux unavailable (data gap?); "
+            f"using most recent DSD value as fallback: {wwv_flux}",
+            file=sys.stderr,
+        )
+    if debug:
+        print(f"DEBUG: wwv_flux (after fallback check): {wwv_flux}", file=sys.stderr)
 
     # Phase 3: next 3 days from 27-day outlook
     phase3_daily = parse_outlook_fluxes(outlook_text, after_date=today, count=3)
@@ -188,7 +197,6 @@ def generate_solarflux_99(
     if debug:
         print(f"DEBUG: today={today}", file=sys.stderr)
         print(f"DEBUG: phase1_daily (29): {phase1_daily}", file=sys.stderr)
-        print(f"DEBUG: wwv_flux: {wwv_flux}", file=sys.stderr)
         print(f"DEBUG: phase3_daily (3): {phase3_daily}", file=sys.stderr)
         print(f"DEBUG: daily33: {daily33}", file=sys.stderr)
 
