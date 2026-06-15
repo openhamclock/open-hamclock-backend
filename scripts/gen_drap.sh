@@ -6,7 +6,7 @@ TMPFILE=$(mktemp /opt/hamclock-backend/cache/$THIS-XXXXX)
 # URL and Paths
 URL="https://services.swpc.noaa.gov/text/drap_global_frequencies.txt"
 OUTPUT="/opt/hamclock-backend/htdocs/ham/HamClock/drap/stats.txt"
-LAST_DATE_FILE="/opt/hamclock-backend/htdocs/ham/HamClock/drap/last_valid_date.txt"
+LAST_DATE_FILE="/opt/hamclock-backend/cache/last_valid_date.txt"
 
 # 1. Fetch the data into a variable to avoid multiple downloads
 RAW_DATA=$(curl -s "$URL")

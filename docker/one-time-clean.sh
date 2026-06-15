@@ -33,8 +33,14 @@ cp "$STOCK_FILES_LIST" "$FILES_LIST"
 
 while IFS= read -r file; do
     if [ -d "$DVC_MOUNT/$file" ]; then
-        echo "$THIS: Removing directory: $DVC_MOUNT/$file"
-	    rmdir "$DVC_MOUNT/$file"
+        # remove only the directory contents if it ends in slash
+        if [[ "$DVC_MOUNT/$file" == */ ]]; then
+            echo "$THIS: Removing contents of directory: $DVC_MOUNT/$file"
+	        rmdir "$DVC_MOUNT/$file/*"
+        else
+            echo "$THIS: Removing directory: $DVC_MOUNT/$file"
+	        rmdir "$DVC_MOUNT/$file"
+        fi
     elif [ -f "$DVC_MOUNT/$file" ]; then
         echo "$THIS: Deleting file: $DVC_MOUNT/$file"
 	    rm -f "$DVC_MOUNT/$file"
