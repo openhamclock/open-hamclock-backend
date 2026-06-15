@@ -8,6 +8,8 @@
 #
 # If the file is a directory and ends in slash the directory is retained but 
 # emptied out. Otherwise the directory itself is removed also.
+#
+# the entry needs to begin with a /
 
 # pretty much keep this as standard - clean up /tmp but keep the folder
 /tmp/
