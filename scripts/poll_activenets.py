@@ -200,6 +200,7 @@ def main():
         return 1
 
     rows, all_tags = parse_nets(xml_bytes)
+    rows.sort(key=lambda r: r.get("date", ""), reverse=True)
 
     if args.debug:
         print(f"Discovered child tags: {sorted(all_tags)}")
