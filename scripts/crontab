@@ -84,24 +84,16 @@ LANG=C
 #   The GMA WWFF spot API is rate limited to 1 request/minute and 1440
 #   requests/day per client. Mario has asked software authors to cache
 #   spot data centrally rather than letting every installation poll
-#   cqgma.org directly.
+#   cqgma.org directly. A key must be requested from cqgma to use the API.
 #
 #   How OHB complies:
 #     * The OHB runs fetch_wwff_cache.pl once per minute and
 #       publishes the result at /ham/HamClock/ONTA/wwff_spots.json.
-#     * When ALPHA_INSTALL is set to 'true', OHB gets the json
-#       from cqgma.org directly.
-#     * When ALPHA_INSTALL is set to a hostname, OHB gets the json
-#       from http://$ALPHA_INSTALL/ham/HamClock/ONTA/wwff_spots.json.
-#     * When ALPHA_INSTALL is set to a full URL, OHB gets the json
-#       from that URL.
-#     * When ALPHA_INSTALL is unset, it defaults to http://ohb.hamclock.app/ham/HamClock/ONTA/wwff_spots.json.
-#
-#
-#   *** Self-install operators: Do not set ALPHA_INSTALL to true. ***
-#   *** It is for the central mirror host only.         ***
-#   the ALPHA_INSTALL= prefix can also be set:
-#     $SCRIPTS/cron-wrapper.sh ALPHA_INSTALL=ohb.hamclock.app $SCRIPTS/fetch_wwff_cache.pl
+#     * When CQGMA_API_KEY is set in .env, OHB gets the json from cqgma.org directly.
+#     * When key is not set, OHB gets json from 
+#          http://$MIRROR/ham/HamClock/ONTA/wwff_spots.json
+#       and falls back to
+#          http://ohb.hamclock.app/ham/HamClock/ONTA/wwff_spots.json
 # ============================================================================
 */2 * * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_wwff_cache.pl
 1-59/2 * * * * $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_onta.pl
