@@ -63,7 +63,7 @@ set -u
 HOST="${HAMCLOCK_PROBE_HOST:-http://localhost}"
 SIDECAR="${HAMCLOCK_PROBE_OUTPUT:-/opt/hamclock-backend/htdocs/ham/HamClock/dynamic_status.json}"
 NODE_EXPORTER_URL="${HAMCLOCK_NODE_EXPORTER_URL:-http://node-exporter:9100/metrics}"
-TIMEOUT="${HAMCLOCK_PROBE_TIMEOUT:-10}"
+TIMEOUT="${HAMCLOCK_PROBE_TIMEOUT:-15}"
 QUIET=0
 MIN_BYTES_OK=1   # 200 + >=1 byte counts as ACTIVE
 UA="OHB-probe/1.0"
