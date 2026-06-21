@@ -402,6 +402,7 @@ emit_file_row() {
             mod_human="${REMOTE_FILE_MOD[$filename]:-unknown}"
             mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
             age_sec=$(( NOW_EPOCH - mod_epoch ))
+            age_sec=$(( age_sec < 0 ? 0 : age_sec ))
             status_text="${REMOTE_FILE_STATUS[$filename]:-STALE}"
             case "$status_text" in
                 FRESH)  status_class="ok" ;;
@@ -422,6 +423,7 @@ emit_file_row() {
         mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
                  || date -u -r "$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
         age_sec=$(( NOW_EPOCH - mod_epoch ))
+        age_sec=$(( age_sec < 0 ? 0 : age_sec ))
         class_text=$(classify_age "$age_sec" "$(get_thresholds "$label" "$filename")")
         status_class="${class_text%% *}"
         status_text="${class_text#* }"
@@ -570,12 +572,14 @@ build_json_entries() {
             mod_human="${REMOTE_FILE_MOD[$filename]}"
             mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
             age_sec=$(( NOW_EPOCH - mod_epoch ))
+            age_sec=$(( age_sec < 0 ? 0 : age_sec ))
             status_text="${REMOTE_FILE_STATUS[$filename]}"
         else
             mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
             mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null \
                      || date -u -r "$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
             age_sec=$(( NOW_EPOCH - mod_epoch ))
+            age_sec=$(( age_sec < 0 ? 0 : age_sec ))
             local class_and_text
             class_and_text=$(classify_age "$age_sec" "$(get_thresholds "$label" "$filename")")
             status_text="${class_and_text#* }"
