@@ -244,6 +244,7 @@ calculate_stats() {
         else
             local mod_epoch=$(stat -c %Y "$filepath" 2>/dev/null || stat -f %m "$filepath" 2>/dev/null || echo 0)
             local age_sec=$(( NOW_EPOCH - mod_epoch ))
+            age_sec=$(( age_sec < 0 ? 0 : age_sec ))
             local thresholds
             thresholds=$(get_thresholds "$label" "$filename")
             local class_and_text
