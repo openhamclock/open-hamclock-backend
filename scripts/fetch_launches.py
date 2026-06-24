@@ -59,6 +59,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import http.client
 from datetime import datetime, timezone
 
 API_URL    = "https://ll.thespacedevs.com/2.3.0/launches/upcoming/"
@@ -163,18 +164,33 @@ def status_abbrev(launch):
 def fetch_launches():
     url = API_URL + API_PARAMS
     req = urllib.request.Request(url, headers={"User-Agent": "HamClock/fetch_launches.py"})
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        print(f"HTTP error {e.code}: {e.reason}", file=sys.stderr)
-        sys.exit(1)
-    except urllib.error.URLError as e:
-        print(f"URL error: {e.reason}", file=sys.stderr)
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f"JSON decode error: {e}", file=sys.stderr)
-        sys.exit(1)
+    
+    max_attempts = 3
+    retry_delay = 5
+    data = None
+    
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+                print(f"HTTP error {e.code}: {e.reason}. Retrying in {retry_delay}s (attempt {attempt}/{max_attempts})...", file=sys.stderr)
+                time.sleep(retry_delay)
+                continue
+            print(f"HTTP error {e.code}: {e.reason}", file=sys.stderr)
+            sys.exit(1)
+        except (urllib.error.URLError, ConnectionError, TimeoutError, http.client.HTTPException) as e:
+            if attempt < max_attempts:
+                print(f"Network error: {e}. Retrying in {retry_delay}s (attempt {attempt}/{max_attempts})...", file=sys.stderr)
+                time.sleep(retry_delay)
+                continue
+            print(f"Network error after {max_attempts} attempts: {e}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     results = data.get("results", [])
     now_ts  = int(time.time())
