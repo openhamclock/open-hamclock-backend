@@ -146,6 +146,54 @@ def pick(record, source_names):
             return val
     return ""
 
+def normalize_frequency(raw: str) -> str:
+    """
+    Normalise a frequency string from NetLogger to a consistent display format.
+
+    NetLogger entries are inconsistent – any of these may appear:
+      "7153"        bare integer, kHz implied  (>= 1000)
+      "7.248"       bare decimal, MHz implied  (< 1000)
+      "7,153"       thousands-separated kHz
+      "7153 kHz"    explicit kHz
+      "7.153 MHz"   explicit MHz
+
+    Ambiguity rule (no unit suffix):
+      value >= 1000  →  kHz  (smallest ham band is ~1800 kHz on 160 m)
+      value <  1000  →  MHz  (all bands expressed in MHz are < 1000)
+
+    Output format:
+      Below 54 MHz (6 m and lower HF bands)  →  kHz   e.g. "7153 kHz"
+      54 MHz and above (VHF / UHF)           →  MHz   e.g. "144.200 MHz"
+
+    Any value that cannot be parsed is returned unchanged.
+    """
+    if not raw:
+        return raw
+
+    cleaned = raw.strip().replace(",", "")   # drop thousands separators
+    lower   = cleaned.lower()
+
+    try:
+        if lower.endswith("mhz"):
+            freq_khz = float(lower[:-3].strip()) * 1000
+        elif lower.endswith("khz"):
+            freq_khz = float(lower[:-3].strip())
+        else:
+            value    = float(cleaned)
+            freq_khz = value if value >= 1000 else value * 1000
+    except ValueError:
+        return raw                           # not a parseable number – leave it alone
+
+    # Boundary: top of the 6 m allocation (~54 MHz)
+    if freq_khz < 54_000.0:
+        # HF / 6 m → kHz (integer when exact, one decimal place otherwise)
+        if freq_khz == int(freq_khz):
+            return f"{int(freq_khz)} kHz"
+        return f"{freq_khz:.1f} kHz"
+    else:
+        # VHF / UHF → MHz with three decimal places (standard amateur precision)
+        return f"{freq_khz / 1000:.3f} MHz"
+
 def build_csv(rows):
     """Return the full CSV document as a string."""
     buf = io.StringIO()
@@ -159,7 +207,13 @@ def build_csv(rows):
         writer.writerow([col for col, _ in COLUMNS])
 
     for rec in rows:
-        writer.writerow([pick(rec, srcs) for _, srcs in COLUMNS])
+        row = []
+        for header, srcs in COLUMNS:
+            val = pick(rec, srcs)
+            if header == "Frequency":
+                val = normalize_frequency(val)
+            row.append(val)
+        writer.writerow(row)
 
     return buf.getvalue()
 
