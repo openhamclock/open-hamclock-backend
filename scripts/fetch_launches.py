@@ -38,12 +38,24 @@
 # CRON (every 15 minutes):
 #   */15 * * * * /usr/local/bin/fetch_launches.py
 #
-# FILE FORMAT (consumed by launches.cpp):
+# FILE FORMAT (consumed by launches.cpp) -- FOUR lines per launch as of this version:
 #   Line 1:  attribution credit string
-#   Per launch (3 lines):
+#   Per launch (4 lines):
 #     <net_unix_ts> <status_abbrev> <display_name>
 #     <provider_abbrev> @ <location>
 #     <web_page_url>
+#     <pad_lat> <pad_lon> <wikipedia_url>
+#
+#   Line 4 details:
+#     <pad_lat>/<pad_lon> are signed decimal degrees (N+/E+).  When the pad
+#       coordinates are unknown they are written as the literal token "NA".
+#     <wikipedia_url> is the pad's (or location's) Wikipedia page; when none is
+#       available it is written as a single "-".  The URL never contains spaces
+#       so the C++ side can split on the first two spaces only.
+#
+#   This 4th line lets HamClock place the launch site as a clickable map POI,
+#   highlight it when the user hovers the launch listing, and offer to open the
+#   site's Wikipedia page.
 #
 # STATUS ABBREVS (drives color coding in HamClock):
 #   Go    = confirmed T-0  → green highlight
@@ -95,8 +107,9 @@ def shorten(s, maxlen):
 
 def pick_url(launch):
     """Return the best human-readable web page URL for this launch."""
-    # Prefer explicit infoURLs on the launch object
-    for iu in launch.get("infoURLs", []):
+    # Prefer explicit infoURLs on the launch object.
+    # NOTE: LL 2.3.0 renamed infoURLs -> info_urls; accept either for safety.
+    for iu in (launch.get("info_urls") or launch.get("infoURLs") or []):
         url = iu.get("url", "")
         t   = (iu.get("type") or {}).get("name", "")
         if url and t in ("Official Page", "Wikipedia", "Official Press Kit"):
@@ -140,6 +153,46 @@ def pick_provider(launch):
         return abbrev if abbrev else shorten(name, 12)
     except (KeyError, TypeError):
         return "Unknown"
+
+
+def _to_float(v):
+    """Best-effort float conversion (LL2 returns lat/lon as float in 2.3.0 but
+    string in older versions).  Returns None if not parseable."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def pick_padloc(launch):
+    """Return (lat, lon, wiki_url) for the launch pad.
+
+    lat/lon are floats in signed decimal degrees, or None if unknown.
+    wiki_url is a Wikipedia (or other info) URL string, or "" if none.
+    The (0.0, 0.0) "null island" coordinate that LL2 uses for unknown/mobile
+    sea-launch pads is treated as unknown.
+    """
+    try:
+        pad = launch["pad"] or {}
+    except (KeyError, TypeError):
+        return (None, None, "")
+
+    lat = _to_float(pad.get("latitude"))
+    lon = _to_float(pad.get("longitude"))
+
+    # LL2 uses 0,0 to mean "unknown" for some mobile/sea pads
+    if lat is not None and lon is not None and lat == 0.0 and lon == 0.0:
+        lat = lon = None
+
+    # Prefer the pad's own Wikipedia page, then the location's, then the pad info_url.
+    wiki = pad.get("wiki_url") or ""
+    if not wiki:
+        loc = pad.get("location") or {}
+        wiki = loc.get("wiki_url") or ""
+    if not wiki:
+        wiki = pad.get("info_url") or ""
+
+    return (lat, lon, wiki)
 
 
 def status_abbrev(launch):
@@ -217,10 +270,11 @@ def fetch_launches():
         if net_ts < now_ts - 3600:
             continue
 
-        name     = shorten(launch.get("name", "Unknown"), MAX_NAME)
-        provider = pick_provider(launch)
-        location = pick_location(launch)
-        web_url  = pick_url(launch)
+        name        = shorten(launch.get("name", "Unknown"), MAX_NAME)
+        provider    = pick_provider(launch)
+        location    = pick_location(launch)
+        web_url     = pick_url(launch)
+        lat, lon, wiki_url = pick_padloc(launch)
 
         # Line 1: timestamp, status, display name
         lines.append(f"{net_ts} {sa} {name}")
@@ -228,6 +282,12 @@ def fetch_launches():
         lines.append(f"{provider} @ {location}")
         # Line 3: web page URL
         lines.append(web_url)
+        # Line 4: pad lat lon wikipedia-url  (NA/NA/- when unknown)
+        lat_s = f"{lat:.4f}" if lat is not None else "NA"
+        lon_s = f"{lon:.4f}" if lon is not None else "NA"
+        # A URL must never contain whitespace; guard anyway so the 3-field split holds.
+        wiki_s = (wiki_url.split()[0] if wiki_url else "") or "-"
+        lines.append(f"{lat_s} {lon_s} {wiki_s}")
 
         count += 1
 
