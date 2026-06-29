@@ -101,6 +101,7 @@ WRITE_COLUMN_HEADER     = True  # second line: the CSV column names
 FREQ_UNIT_POLICY = "hybrid"
 SIXM_TOP_KHZ     = 54000        # top of 6 m; at/below -> kHz, above -> MHz (hybrid)
 
+
 # --- NCS grid lookup (Path B) cache + throttle ---------------------------------
 GRID_CACHE_PATH      = "/opt/hamclock-backend/cache/activenets/grid_cache.json"
 GRID_TTL_SECS        = 6 * 3600     # trust a known grid this long
