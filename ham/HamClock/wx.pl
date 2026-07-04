@@ -79,14 +79,30 @@ my %wx = (
 # Get the weather
 # -------------------------
 if (defined $lat && defined $lng) {
+    eval {
+        local $SIG{ALRM} = sub { die "timeout\n" };
+        alarm 3;
 
-    # Timezone: try DST-aware sources in order, fall back to longitude approximation.
-    # approx_timezone_seconds() is intentionally last -- it has no DST awareness.
-    $wx{timezone} = get_timezone_secs($lat, $lng);
+        # Timezone: try DST-aware sources in order, fall back to longitude approximation.
+        # approx_timezone_seconds() is intentionally last -- it has no DST awareness.
+        $wx{timezone} = get_timezone_secs($lat, $lng);
 
-    # 1) points lookup
-    if ( ! $weather_apis{'openweathermap.org'}->{'func'}->($lat, $lng, \%wx) ) {
-        my $return = $weather_apis{'open-meteo.com'}->{'func'}->($lat, $lng, \%wx);
+        # 1) points lookup
+        if ( ! $weather_apis{'openweathermap.org'}->{'func'}->($lat, $lng, \%wx) ) {
+            my $return = $weather_apis{'open-meteo.com'}->{'func'}->($lat, $lng, \%wx);
+        }
+
+        alarm 0;
+    };
+    if ($@) {
+        alarm 0;
+        if ($@ eq "timeout\n") {
+            print STDERR "wx.pl: timeout retrieving weather data for lat=$lat lng=$lng\n";
+            $wx{conditions} = "Timeout retrieving weather data";
+        } else {
+            print STDERR "wx.pl: error retrieving weather data: $@";
+            $wx{conditions} = "Error: $@";
+        }
     }
 }
 
