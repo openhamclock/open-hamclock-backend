@@ -32,6 +32,10 @@ if (scalar @params == 1 && $params[0] eq 'keywords') {
 }
 
 @params = grep { $_ ne '' } @params;
+
+# Ignore unknown parameters by filtering to only keep known ones (case-insensitive)
+@params = grep { /^open-hamclock-backend$/i || /^hamclock$/i } @params;
+
 my $has_ohb = grep { /^open-hamclock-backend$/i } @params;
 my $has_hc  = grep { /^hamclock$/i } @params;
 
