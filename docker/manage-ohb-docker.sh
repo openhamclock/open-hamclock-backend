@@ -18,7 +18,7 @@
 # at release time, this value is set to the tagged release
 OHB_MANAGER_VERSION=latest
 # tags to use
-DEFAULT_VOACAP_SERVICE_TAG=1.16
+DEFAULT_VOACAP_SERVICE_TAG=1.17
 DEFAULT_PSKR_MQTT_CACHE_TAG=1.14
 DEFAULT_WSPR_LIVE_CACHE_TAG=1.3
 
