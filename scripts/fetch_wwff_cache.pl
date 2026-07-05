@@ -15,11 +15,11 @@
 #           *** RUNS ON ALL OHB HOSTS ***
 #      Behavior determined by CQGMA_API_KEY and MIRROR environment variables
 #
-#  Fetches live WWFF spots from cqgma.org once per minute and writes them
+#  Fetches live WWFF spots from gma.rocks once per minute and writes them
 #  to a local JSON file that all OHB installations (central + self-install)
 #  read via gen_onta.pl.
 #
-#  Per request from Mario, DL4MFM (https://www.cqgma.org), the WWFF spot
+#  Per request from Mario, DL4MFM (https://www.gma.rocks), the WWFF spot
 #  API is rate limited to 1 req/min and 1440 req/day per client. To keep
 #  the service free and stable, OHB now uses a single shared mirror
 #  instead of letting every installation poll GMA directly.
@@ -56,7 +56,7 @@ use File::Basename qw(dirname);
 use File::Path qw(make_path);
 
 my $MIRROR     = $ENV{MIRROR} || 'ohb.hamclock.app';
-my $GMA_SOURCE = 'https://www.cqgma.org/api/spots/wwff/';
+my $GMA_SOURCE = 'https://www.gma.rocks/api/spots/wwff/';
 
 # Get CQGMA_API_KEY from environment or .env file
 my $CQGMA_API_KEY = $ENV{CQGMA_API_KEY} // '';
