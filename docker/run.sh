@@ -63,9 +63,15 @@ cp /opt/hamclock-backend/ham/robots.txt /opt/hamclock-backend/htdocs
 cp /opt/hamclock-backend/ham/index.html /opt/hamclock-backend/htdocs/index.html
 cp /opt/hamclock-backend/docker/manage-ohb-docker.sh /opt/hamclock-backend/htdocs/
 
+# start the background proxy daemon
+echo "Starting OHB Proxy Daemon ..."
+/usr/sbin/runuser -u www-data -- /usr/bin/perl /opt/hamclock-backend/scripts/ohb-proxy-daemon.pl daemon -l http://127.0.0.1:8081 &
+
+
 # start the web server
 echo "Starting lighttpd ..."
 /usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf
+
 
 # only needs to be primed when docker volume container is instantiated
 if [ ! -e /opt/hamclock-backend/htdocs/state/prime_crontabs.done ]; then
