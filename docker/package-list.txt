@@ -19,6 +19,7 @@ imagemagick
 jq
 libdbd-sqlite3-perl
 libdbi-perl
+libfcgi-perl
 libhtml-parser-perl
 libjson-perl
 libmojolicious-perl

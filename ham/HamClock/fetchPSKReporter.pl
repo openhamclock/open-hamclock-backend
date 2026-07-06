@@ -28,6 +28,7 @@
 use strict;
 use warnings;
 
+use CGI::Fast;        # Crucial for FastCGI persistence
 use Mojo::UserAgent;
 use Mojo::IOLoop;
 
@@ -36,7 +37,7 @@ use Mojo::IOLoop;
 $SIG{PIPE} = 'IGNORE';
 
 # —————————————————————————
-# Configuration
+# Configuration (Initialized ONCE on startup)
 # —————————————————————————
 
 my $host        = $ENV{PSKR_MQTT_CACHE_HOST} || 'pskr-mqtt-cache:5000';
@@ -44,87 +45,87 @@ my $SERVICE_URL = "http://$host/ham/HamClock";
 my $ENDPOINT    = "$SERVICE_URL/fetchPSKReporter.pl";
 my $TIMEOUT     = 12;
 
-# —————————————————————————
-# Forward query string verbatim.
-# —————————————————————————
-
-my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
-my $url = "$ENDPOINT?$qs";
-
-binmode(STDOUT);
-
-# Shared state for the IOLoop callbacks.
-my $headers_sent = 0;   # have we already emitted CGI headers to stdout?
-my $aborted      = 0;   # set when we cancel due to client disconnect
-
+# Instantiate the UserAgent ONCE globally. 
+# This allows Mojo to maintain a connection pool to $host across requests!
 my $ua = Mojo::UserAgent->new
     ->connect_timeout(4)
     ->inactivity_timeout(8)
     ->request_timeout($TIMEOUT)
     ->max_redirects(0);
 
-my $original_ua = $ENV{HTTP_USER_AGENT} // 'OHB-Proxy/1.0';
-my $tx = $ua->build_tx(GET => $url, {'User-Agent' => $original_ua});
+# —————————————————————————
+# FastCGI Main Loop
+# —————————————————————————
 
-# Stream upstream body to stdout chunk-by-chunk. Each syswrite reveals
-# whether the downstream client is still there.
-$tx->res->content->unsubscribe('read')->on(read => sub {
-    my ($content, $bytes) = @_;
-    return if $aborted;
+while (my $q = CGI::Fast->new) {
+    # Per-request configuration
+    my $qs  = $ENV{QUERY_STRING} || '';
+    my $url = "$ENDPOINT?$qs";
 
-    # Send CGI headers on first chunk (which is also when upstream headers
-    # are first available — Mojo populates them before firing 'read').
+    binmode(STDOUT);
+
+    # Shared state for the IOLoop callbacks for THIS specific request.
+    my $headers_sent = 0;   
+    my $aborted      = 0;   
+
+    my $original_ua = $ENV{HTTP_USER_AGENT} // 'OHB-Proxy/1.0';
+    my $tx = $ua->build_tx(GET => $url, {'User-Agent' => $original_ua});
+
+    # Stream upstream body to stdout chunk-by-chunk.
+    $tx->res->content->unsubscribe('read')->on(read => sub {
+        my ($content, $bytes) = @_;
+        return if $aborted;
+
+        if (!$headers_sent) {
+            emit_headers($tx->res);
+            $headers_sent = 1;
+        }
+
+        return unless length $bytes;
+
+        my $written = syswrite(STDOUT, $bytes);
+        if (!defined $written) {
+            # Client gone (EPIPE). Cancel upstream transaction.
+            $aborted = 1;
+            $tx->res->error({message => "client write failed: $!"});
+            Mojo::IOLoop->stop;
+        }
+    });
+
+    # Start non-blocking transaction
+    $ua->start($tx => sub {
+        my ($ua, $tx) = @_;
+        Mojo::IOLoop->stop;
+    });
+
+    # Run the loop for this single transaction
+    Mojo::IOLoop->start;
+
+    # Post-mortem handling for this request
+    if ($aborted) {
+        next; # Move on to the next FastCGI request
+    }
+
+    my $err = $tx->error;
+    if ($err) {
+        if (!$headers_sent) {
+            my $msg = $err->{message} // 'unknown';
+            print STDERR "fetchPSKReporter: upstream failed: $msg ($url)\n";
+            my $body = "pskr-mqtt-cache unreachable: $msg\n";
+            syswrite(STDOUT,
+                "Status: 502 Bad Gateway\r\n" .
+                "Content-Type: text/plain\r\n" .
+                "\r\n" .
+                $body);
+        }
+        next;
+    }
+
     if (!$headers_sent) {
         emit_headers($tx->res);
-        $headers_sent = 1;
+        my $body = $tx->res->body // '';
+        syswrite(STDOUT, $body) if length $body;
     }
-
-    return unless length $bytes;   # final 0-byte event signalling EOF
-
-    my $written = syswrite(STDOUT, $bytes);
-    if (!defined $written) {
-        # Client gone (EPIPE) or other write error. Cancel upstream so the
-        # socket closes and the disconnect propagates to pskr-mqtt-cache.
-        $aborted = 1;
-        $tx->res->error({message => "client write failed: $!"});
-        Mojo::IOLoop->stop;
-    }
-});
-
-$ua->start($tx => sub {
-    my ($ua, $tx) = @_;
-    Mojo::IOLoop->stop;
-});
-
-Mojo::IOLoop->start;
-
-# —————————————————————————
-# Post-mortem
-# —————————————————————————
-
-if ($aborted) {
-    exit 1;
-}
-
-my $err = $tx->error;
-if ($err) {
-    if (!$headers_sent) {
-        my $msg = $err->{message} // 'unknown';
-        print STDERR "fetchPSKReporter: upstream failed: $msg ($url)\n";
-        my $body = "pskr-mqtt-cache unreachable: $msg\n";
-        syswrite(STDOUT,
-            "Status: 502 Bad Gateway\r\n" .
-            "Content-Type: text/plain\r\n" .
-            "\r\n" .
-            $body);
-    }
-    exit 1;
-}
-
-if (!$headers_sent) {
-    emit_headers($tx->res);
-    my $body = $tx->res->body // '';
-    syswrite(STDOUT, $body) if length $body;
 }
 
 exit;
@@ -135,13 +136,10 @@ sub emit_headers {
     my $msg  = $res->message // 'Unknown';
     my $hdr = "Status: $code $msg\r\n";
 
-    # Build the entire header block as one string and syswrite it to avoid
-    # mixing buffered print with unbuffered syswrite.
     my $headers = $res->headers->to_hash(1);
     for my $name (sort keys %$headers) {
         next if $name =~ /^(Transfer-Encoding|Connection|Content-Length|Client-)/i;
 
-        # HamClock-specific casing fix
         my $out_name = ($name =~ /^X-2Z-Lengths$/i) ? 'X-2Z-lengths' : $name;
 
         my $values = $headers->{$name};
