@@ -896,7 +896,11 @@ determine_map_sizes() {
 
     # first precedence
     if [ -n "$REQUESTED_MAP_SIZES" ]; then
-        MAP_SIZES=$REQUESTED_MAP_SIZES
+        if [ "$REQUESTED_MAP_SIZES" == - ]; then
+            MAP_SIZES=$DEFAULT_MAP_SIZES
+        else
+            MAP_SIZES=$REQUESTED_MAP_SIZES
+        fi
 
     # second precedence
     elif [ -n "$STICKY_MAP_SIZES" ]; then
@@ -919,7 +923,11 @@ determine_alpha_install() {
 
     # first precedence
     if [ -n "$REQUESTED_ALPHA_INSTALL" ]; then
-        ALPHA_INSTALL="$REQUESTED_ALPHA_INSTALL"
+        if [ "$REQUESTED_ALPHA_INSTALL" == - ]; then
+            ALPHA_INSTALL="$DEFAULT_ALPHA_INSTALL"
+        else
+            ALPHA_INSTALL="$REQUESTED_ALPHA_INSTALL"
+        fi
 
     # second precedence
     elif [ -n "$STICKY_ALPHA_INSTALL" ]; then
@@ -940,7 +948,11 @@ determine_proxy_maps() {
 
     # first precedence
     if [ -n "$REQUESTED_PROXY_MAPS" ]; then
-        PROXY_MAPS="$REQUESTED_PROXY_MAPS"
+        if [ "$REQUESTED_PROXY_MAPS" == - ]; then
+            PROXY_MAPS="$DEFAULT_PROXY_MAPS"
+        else
+            PROXY_MAPS="$REQUESTED_PROXY_MAPS"
+        fi
 
     # second precedence
     elif [ -n "$STICKY_PROXY_MAPS" ]; then
