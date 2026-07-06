@@ -19,6 +19,8 @@ use strict;
 use warnings;
 use HTTP::Tiny;
 use JSON::PP;
+use Fcntl qw(:flock);
+use File::Path qw(make_path);
 
 my %weather_apis = (
     'weather.gov' => {
@@ -39,6 +41,19 @@ my $UA = HTTP::Tiny->new(
     timeout => 5,
     agent   => "HamClock-NOAA/1.1"
 );
+
+# -------------------------
+# Cache config
+# -------------------------
+# Requests are frequently for the same location within seconds (multiple
+# HamClocks in the same house/club, or one HamClock polling DE+DX every
+# few seconds), so a coarse, short-TTL disk cache removes almost all
+# duplicate upstream calls without needing a DB or daemon.
+my $CACHE_DIR = '/opt/hamclock-backend/cache/hamclock-wx-cache/';
+my $WX_TTL    = $ENV{'WX_CACHE_TTL'} // 600;   # 10 min: matches OWM/Open-Meteo update cadence
+my $TZ_TTL    = $ENV{'TZ_CACHE_TTL'} // 3600;  # 1 hr: DST offset doesn't change more often than this
+
+eval { make_path($CACHE_DIR) unless -d $CACHE_DIR; };
 
 # -------------------------
 # Parse QUERY_STRING
@@ -78,37 +93,53 @@ my %wx = (
 # -------------------------
 # Get the weather
 # -------------------------
-if (defined $lat && defined $lng) {
-    eval {
-        local $SIG{ALRM} = sub { die "timeout\n" };
-        alarm 3;
+if (defined $lat && defined $lng && looks_like_coord($lat) && looks_like_coord($lng)) {
 
-        # Timezone: try DST-aware sources in order, fall back to longitude approximation.
-        # approx_timezone_seconds() is intentionally last -- it has no DST awareness.
-        $wx{timezone} = get_timezone_secs($lat, $lng);
+    # Timezone: try DST-aware sources in order, fall back to longitude approximation.
+    # approx_timezone_seconds() is intentionally last -- it has no DST awareness.
+    $wx{timezone} = get_timezone_secs($lat, $lng);
 
-        # 1) points lookup
-        if ( ! $weather_apis{'openweathermap.org'}->{'func'}->($lat, $lng, \%wx) ) {
-            my $return = $weather_apis{'open-meteo.com'}->{'func'}->($lat, $lng, \%wx);
-        }
-
-        alarm 0;
-    };
-    if ($@) {
-        alarm 0;
-        if ($@ eq "timeout\n") {
-            print STDERR "wx.pl: timeout retrieving weather data for lat=$lat lng=$lng\n";
-            $wx{conditions} = "Timeout retrieving weather data";
-        } else {
-            print STDERR "wx.pl: error retrieving weather data: $@";
-            $wx{conditions} = "Error: $@";
-        }
-    }
+    # Weather: serve from cache if fresh; otherwise fetch and repopulate cache.
+    get_weather_cached($lat, $lng, \%wx);
 }
 
 hc_output(%wx);
 
 exit;
+
+# -------------------------
+# Weather with caching + stale-on-error fallback
+# -------------------------
+sub get_weather_cached {
+    my ($lat, $lng, $wx) = @_;
+    my $file = cache_key('wx', $lat, $lng);
+
+    my $cached = cache_get($file, $WX_TTL);
+    if ($cached) {
+        %$wx = (%$wx, %$cached);
+        $wx->{_cache} = 'hit';
+        return;
+    }
+
+    # Cache miss/stale: try live sources.
+    my $ok = $weather_apis{'openweathermap.org'}->{'func'}->($lat, $lng, $wx);
+    $ok = $weather_apis{'open-meteo.com'}->{'func'}->($lat, $lng, $wx) unless $ok;
+
+    if ($ok) {
+        # Cache everything needed to reconstruct the response, but not the
+        # timezone (that has its own cache/TTL and source-of-truth logic).
+        my %to_cache = %$wx;
+        delete $to_cache{timezone};
+        cache_set($file, \%to_cache);
+    } else {
+        # Both live sources failed -- serve stale cache instead of -999s if we have it.
+        my $stale = cache_get($file, 2**31);
+        if ($stale) {
+            %$wx = (%$wx, %$stale);
+            $wx->{_cache} = 'stale';
+        }
+    }
+}
 
 # -------------------------
 # Output (HamClock format)
@@ -139,7 +170,7 @@ BODY
 }
 
 # -------------------------
-# Timezone: DST-aware lookup
+# Timezone: DST-aware lookup (cached)
 # -------------------------
 
 # Try sources in order until one succeeds.
@@ -147,15 +178,23 @@ BODY
 sub get_timezone_secs {
     my ($lat, $lng) = @_;
 
+    my $file = cache_key('tz', $lat, $lng);
+    my $cached = cache_get($file, $TZ_TTL);
+    return $cached->{offset} if $cached && defined $cached->{offset};
+
     # 1. Open-Meteo timezone API -- free, no key, returns IANA name + utc_offset_seconds (DST-aware)
     my $tz = _tz_open_meteo($lat, $lng);
-    return $tz if defined $tz;
 
     # 2. TimeZoneDB -- free tier, key optional, returns DST-aware offset
-    $tz = _tz_timezonedb($lat, $lng);
-    return $tz if defined $tz;
+    $tz = _tz_timezonedb($lat, $lng) unless defined $tz;
 
-    # 3. Longitude approximation -- no DST, last resort
+    if (defined $tz) {
+        cache_set($file, { offset => $tz });
+        return $tz;
+    }
+
+    # 3. Longitude approximation -- no DST, last resort. Not cached, since it's
+    # cheap to compute and we want a real lookup to win as soon as one succeeds.
     return approx_timezone_seconds($lng);
 }
 
@@ -291,6 +330,7 @@ sub open_weather {
     my $p = $UA->get($base_url.$get_lat_lng.$get_api.$get_params);
     if ($p->{success}) {
         my $pd = eval { decode_json($p->{content}) };
+        $wx->{city}             = $pd->{name} // "";
         $wx->{temperature_c}    = val($pd->{main}->{temp});
         $wx->{humidity_percent} = val($pd->{main}->{humidity});
         $wx->{dewpoint}         = calculate_dew_point($wx->{temperature_c}, $wx->{humidity_percent});
@@ -310,6 +350,59 @@ sub open_weather {
     } else {
         return 0;
     }
+}
+
+# -------------------------
+# Cache helpers
+# -------------------------
+
+# Round lat/lng to 0.1 degree (~11km) so nearby/duplicate requests share a
+# cache entry. This is finer than typical station spacing, so it doesn't
+# meaningfully reduce accuracy.
+sub cache_key {
+    my ($prefix, $lat, $lng) = @_;
+    my $rlat = sprintf("%.1f", $lat + 0);
+    my $rlng = sprintf("%.1f", $lng + 0);
+    return "$CACHE_DIR/$prefix-$rlat-$rlng.json";
+}
+
+sub cache_get {
+    my ($file, $ttl) = @_;
+    return undef unless -f $file;
+    my @st = stat($file);
+    return undef unless @st;
+    my $age = time() - $st[9];
+    return undef if $age > $ttl;
+
+    open(my $fh, '<', $file) or return undef;
+    flock($fh, LOCK_SH);
+    local $/;
+    my $json = <$fh>;
+    close($fh);
+
+    my $data = eval { decode_json($json) };
+    return undef if $@ || ref($data) ne 'HASH';
+    return $data;
+}
+
+sub cache_set {
+    my ($file, $data) = @_;
+    my $tmp = "$file.tmp.$$";
+    my $ok = eval {
+        open(my $fh, '>', $tmp) or die "open: $!";
+        flock($fh, LOCK_EX);
+        print $fh encode_json($data);
+        close($fh);
+        rename($tmp, $file) or die "rename: $!";
+        1;
+    };
+    unlink($tmp) if !$ok && -f $tmp;
+}
+
+# Basic sanity check so we don't create cache files from garbage query params.
+sub looks_like_coord {
+    my ($v) = @_;
+    return defined($v) && $v =~ /^-?\d+(\.\d+)?$/;
 }
 
 # -------------------------
