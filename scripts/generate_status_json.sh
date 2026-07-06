@@ -1152,15 +1152,15 @@ document.addEventListener("DOMContentLoaded", () => {
       list.forEach((badge, idx) => {
         // Assign unique ID to each badge so it can be targeted
         if (idx === 0) {
-          badge.id = `${secId}-${status}`;
+          badge.id = secId + '-' + status;
         } else {
-          badge.id = `${secId}-${status}-${idx + 1}`;
+          badge.id = secId + '-' + status + '-' + (idx + 1);
         }
 
         // Create link destination
         let nextHref = '#';
         if (idx < list.length - 1) {
-          nextHref = `#${secId}-${status}-${idx + 2}`;
+          nextHref = '#' + secId + '-' + status + '-' + (idx + 2);
         }
 
         // Wrap badge in an anchor tag
