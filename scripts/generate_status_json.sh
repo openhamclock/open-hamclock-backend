@@ -55,7 +55,6 @@ THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
 THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_MAP="${THRESH_MAP:-3600 7200 14400}"
 THRESH_ACTIVENETS="${THRESH_ACTIVENETS:-300 600 1800}" # 5m 10m 30m
-THRESH_LIGHTNING="${THRESH_LIGHTNING:-300 600 1800}" # 5m 10m 30m
 THRESH_CLOUDS="${THRESH_CLOUDS:-3600 7200 14400}"
 THRESH_TROPO="${THRESH_TROPO:-12600 23400 43200}"
 THRESH_LAUNCHES="${THRESH_LAUNCHES:-1200 2400 3600}"
@@ -102,7 +101,6 @@ DATA_SUBDIRS=(
     esats
     geomag
     launches
-    lightning
     solar-flux
     solar-wind
     ssn
@@ -164,8 +162,7 @@ get_thresholds() {
         ssn)                                   echo "$THRESH_SSN"        ;;
         esats)                                 echo "$THRESH_ESATS"      ;;
         launches)                              echo "$THRESH_LAUNCHES"   ;;
-        activenets|lightning)                  echo "$THRESH_LIGHTNING"  ;;
-        lightning)                             echo "$THRESH_LIGHTNING"  ;;
+        activenets)                            echo "$THRESH_ACTIVENETS"  ;;
         contests)                              echo "$THRESH_CONTESTS"   ;;
         cty|dxpeds)                            echo "$THRESH_CTY_DX"     ;;
         map)                                   echo "$THRESH_MAP"        ;;
