@@ -798,6 +798,11 @@ cat << HTML_HEAD
       z-index: 3;
     }
     .badge-link:hover .badge { filter: brightness(0.95); }
+    .badge-cycle-link {
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .badge-cycle-link:hover .badge { filter: brightness(0.95); }
 
     /* ── Legend ── */
     .legend {
@@ -1121,6 +1126,55 @@ cat << HTML_FOOT
     Auto-refresh active · every 5 minutes
   </div>
 </footer>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const sections = ['dynamic-endpoints', 'data-products', 'sdo', 'maps'];
+  const statusMap = { 'SYNC_ERR': 'STALE' };
+
+  sections.forEach(secId => {
+    const section = document.getElementById(secId);
+    if (!section) return;
+
+    const badges = Array.from(section.querySelectorAll('tbody td.age .badge'));
+    const groups = {};
+
+    badges.forEach(badge => {
+      const rawStatus = badge.textContent.trim();
+      const status = statusMap[rawStatus] || rawStatus;
+      if (!groups[status]) {
+        groups[status] = [];
+      }
+      groups[status].push(badge);
+    });
+
+    for (const [status, list] of Object.entries(groups)) {
+      list.forEach((badge, idx) => {
+        // Assign unique ID to each badge so it can be targeted
+        if (idx === 0) {
+          badge.id = secId + '-' + status;
+        } else {
+          badge.id = secId + '-' + status + '-' + (idx + 1);
+        }
+
+        // Create link destination
+        let nextHref = '#';
+        if (idx < list.length - 1) {
+          nextHref = '#' + secId + '-' + status + '-' + (idx + 2);
+        }
+
+        // Wrap badge in an anchor tag
+        const link = document.createElement('a');
+        link.href = nextHref;
+        link.className = 'badge-cycle-link';
+
+        badge.parentNode.insertBefore(link, badge);
+        link.appendChild(badge);
+      });
+    }
+  });
+});
+</script>
 
 </body>
 </html>
