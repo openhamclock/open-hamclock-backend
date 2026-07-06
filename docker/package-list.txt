@@ -17,6 +17,7 @@ gmt-gshhg
 gmt-dcw
 imagemagick
 jq
+libcgi-fast-perl
 libdbd-sqlite3-perl
 libdbi-perl
 libhtml-parser-perl
