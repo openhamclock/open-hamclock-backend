@@ -19,6 +19,7 @@
 use strict;
 use warnings;
 
+use CGI::Fast;        # Crucial for FastCGI persistence
 use Mojo::UserAgent;
 use Mojo::IOLoop;
 
@@ -36,81 +37,89 @@ my $ENDPOINT    = "$SERVICE_URL/fetchBandConditions.pl";
 #   uWSGI harakiri             = 300s  (uwsgi.ini)
 my $TIMEOUT = 45;
 
-my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
-
-# Append latest SSN from local file to the upstream request.
-# Use 71 as a nominal default if the file is missing or invalid.
-my $ssn = 71;
-if (open(my $fh, '<', '/opt/hamclock-backend/htdocs/ham/HamClock/ssn/ssn-31.txt')) {
-    my $last_line;
-    while (my $line = <$fh>) {
-        $last_line = $line if $line =~ /\S/;
-    }
-    close $fh;
-    my @parts = split ' ', $last_line if $last_line;
-    $ssn = $parts[3] if @parts >= 4;
-}
-$qs .= ($qs ? '&' : '') . "ohb-ssn=$ssn";
-my $url = "$ENDPOINT?$qs";
-
-binmode(STDOUT);
-
-my $headers_sent = 0;
-my $aborted      = 0;
-
+# Instantiate the UserAgent ONCE globally.
+# Allows Mojo to maintain a connection pool to voacap-service across requests.
 my $ua = Mojo::UserAgent->new
     ->connect_timeout(5)
     ->request_timeout($TIMEOUT)
     ->max_redirects(0);
 
-my $tx = $ua->build_tx(GET => $url);
+# —————————————————————————
+# FastCGI Main Loop
+# —————————————————————————
 
-$tx->res->content->unsubscribe('read')->on(read => sub {
-    my ($content, $bytes) = @_;
-    return if $aborted;
+while (my $q = CGI::Fast->new) {
+    my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
+
+    # Append latest SSN from local file to the upstream request.
+    # Use 71 as a nominal default if the file is missing or invalid.
+    my $ssn = 71;
+    if (open(my $fh, '<', '/opt/hamclock-backend/htdocs/ham/HamClock/ssn/ssn-31.txt')) {
+        my $last_line;
+        while (my $line = <$fh>) {
+            $last_line = $line if $line =~ /\S/;
+        }
+        close $fh;
+        my @parts = split ' ', $last_line if $last_line;
+        $ssn = $parts[3] if @parts >= 4;
+    }
+    $qs .= ($qs ? '&' : '') . "ohb-ssn=$ssn";
+    my $url = "$ENDPOINT?$qs";
+
+    binmode(STDOUT);
+
+    my $headers_sent = 0;
+    my $aborted      = 0;
+
+    my $tx = $ua->build_tx(GET => $url);
+
+    $tx->res->content->unsubscribe('read')->on(read => sub {
+        my ($content, $bytes) = @_;
+        return if $aborted;
+
+        if (!$headers_sent) {
+            emit_headers($tx->res);
+            $headers_sent = 1;
+        }
+        return unless length $bytes;
+
+        my $written = syswrite(STDOUT, $bytes);
+        if (!defined $written) {
+            $aborted = 1;
+            $tx->res->error({message => "client write failed: $!"});
+            Mojo::IOLoop->stop;
+        }
+    });
+
+    $ua->start($tx => sub {
+        my ($ua, $tx) = @_;
+        Mojo::IOLoop->stop;
+    });
+
+    Mojo::IOLoop->start;
+
+    if ($aborted) {
+        # HamClock gone — nothing useful to write. Just move to next request.
+        next;
+    }
+
+    my $err = $tx->error;
+    if ($err) {
+        # Upstream failed. HamClock expects a specific zero-output format on
+        # failure so its band-conditions panel shows blanks rather than an error.
+        if (!$headers_sent) {
+            print STDERR "fetchBandConditions: voacap-service error: ",
+                         ($err->{message} // 'unknown'), " ($url)\n";
+            emit_zero_output($qs);
+        }
+        next;
+    }
 
     if (!$headers_sent) {
         emit_headers($tx->res);
-        $headers_sent = 1;
+        my $body = $tx->res->body // '';
+        syswrite(STDOUT, $body) if length $body;
     }
-    return unless length $bytes;
-
-    my $written = syswrite(STDOUT, $bytes);
-    if (!defined $written) {
-        $aborted = 1;
-        $tx->res->error({message => "client write failed: $!"});
-        Mojo::IOLoop->stop;
-    }
-});
-
-$ua->start($tx => sub {
-    my ($ua, $tx) = @_;
-    Mojo::IOLoop->stop;
-});
-
-Mojo::IOLoop->start;
-
-if ($aborted) {
-    # HamClock gone — nothing useful to write. Just exit; lighttpd reaps us.
-    exit 1;
-}
-
-my $err = $tx->error;
-if ($err) {
-    # Upstream failed. HamClock expects a specific zero-output format on
-    # failure so its band-conditions panel shows blanks rather than an error.
-    if (!$headers_sent) {
-        print STDERR "fetchBandConditions: voacap-service error: ",
-                     ($err->{message} // 'unknown'), " ($url)\n";
-        emit_zero_output($qs);
-    }
-    exit 1;
-}
-
-if (!$headers_sent) {
-    emit_headers($tx->res);
-    my $body = $tx->res->body // '';
-    syswrite(STDOUT, $body) if length $body;
 }
 
 exit 0;
