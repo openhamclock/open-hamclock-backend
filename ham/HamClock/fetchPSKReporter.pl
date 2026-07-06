@@ -42,7 +42,7 @@ $SIG{PIPE} = 'IGNORE';
 my $host        = $ENV{PSKR_MQTT_CACHE_HOST} || 'pskr-mqtt-cache:5000';
 my $SERVICE_URL = "http://$host/ham/HamClock";
 my $ENDPOINT    = "$SERVICE_URL/fetchPSKReporter.pl";
-my $TIMEOUT     = 30;
+my $TIMEOUT     = 12;
 
 # —————————————————————————
 # Forward query string verbatim.
@@ -58,7 +58,8 @@ my $headers_sent = 0;   # have we already emitted CGI headers to stdout?
 my $aborted      = 0;   # set when we cancel due to client disconnect
 
 my $ua = Mojo::UserAgent->new
-    ->connect_timeout(5)
+    ->connect_timeout(4)
+    ->inactivity_timeout(8)
     ->request_timeout($TIMEOUT)
     ->max_redirects(0);
 
