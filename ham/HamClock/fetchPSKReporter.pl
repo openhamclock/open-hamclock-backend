@@ -17,36 +17,43 @@
 
 # fetchPSKReporter.pl — HamClock backend PSKReporter proxy
 #
-# Non-blocking HTTP proxy. Forwards the HamClock query string to the
-# pskr-mqtt-cache service and streams the response back unchanged.
+# HTTP proxy. Forwards the HamClock query string to the pskr-mqtt-cache
+# service and streams the response back unchanged.
 #
-# This version runs Mojo's IOLoop and streams the response body to
-# stdout in chunks via syswrite(). Each chunk write reveals whether
-# HamClock is still listening: a closed pipe returns undef + EPIPE,
-# at which point we abort the upstream transaction.
+# Runs as a persistent FastCGI worker (CGI::Fast). A single hoisted
+# Mojo::UserAgent keeps a keep-alive connection pool to the upstream across
+# requests. The response body is streamed to stdout in chunks via syswrite();
+# a closed pipe (client gone) returns undef + EPIPE, at which point we close
+# the upstream connection to abort the transfer and propagate the disconnect
+# to pskr-mqtt-cache.
 
 use strict;
 use warnings;
 
-use CGI::Fast;        # Crucial for FastCGI persistence
+use CGI::Fast;        # FastCGI persistence
 use Mojo::UserAgent;
 use Mojo::IOLoop;
 
-# We do not want SIGPIPE to kill us — we want to detect EPIPE via syswrite's
-# return value and act on it ourselves.
+# We do not want SIGPIPE to kill us — we detect EPIPE via syswrite's return
+# value and act on it ourselves.
 $SIG{PIPE} = 'IGNORE';
 
 # —————————————————————————
 # Configuration (Initialized ONCE on startup)
 # —————————————————————————
 
-my $host        = $ENV{PSKR_MQTT_CACHE_HOST} || 'pskr-mqtt-cache:5000';
-my $SERVICE_URL = "http://$host/ham/HamClock";
-my $ENDPOINT    = "$SERVICE_URL/fetchPSKReporter.pl";
-my $TIMEOUT     = 12;
+my $host         = $ENV{PSKR_MQTT_CACHE_HOST} || 'pskr-mqtt-cache:5000';
+my $SERVICE_URL  = "http://$host/ham/HamClock";
+my $ENDPOINT     = "$SERVICE_URL/fetchPSKReporter.pl";
+my $TIMEOUT      = 12;
+my $MAX_REQUESTS = 500;   # recycle this worker after N requests so a long-lived
+                          # Perl process can't slowly bloat; the FastCGI manager
+                          # respawns a fresh one.
 
-# Instantiate the UserAgent ONCE globally. 
-# This allows Mojo to maintain a connection pool to $host across requests!
+# Instantiate the UserAgent ONCE globally so Mojo maintains a keep-alive
+# connection pool to $host across requests. NOTE: a blocking $ua->start (below)
+# runs on the UA's OWN ioloop, and that pool lives on that same loop, so pooling
+# is preserved across requests.
 my $ua = Mojo::UserAgent->new
     ->connect_timeout(4)
     ->inactivity_timeout(8)
@@ -57,6 +64,7 @@ my $ua = Mojo::UserAgent->new
 # FastCGI Main Loop
 # —————————————————————————
 
+my $reqs = 0;
 while (my $q = CGI::Fast->new) {
     # Per-request configuration
     my $qs  = $ENV{QUERY_STRING} || '';
@@ -64,14 +72,20 @@ while (my $q = CGI::Fast->new) {
 
     binmode(STDOUT);
 
-    # Shared state for the IOLoop callbacks for THIS specific request.
-    my $headers_sent = 0;   
-    my $aborted      = 0;   
+    # Per-request state for the streaming callback.
+    my $headers_sent = 0;
+    my $aborted      = 0;
 
     my $original_ua = $ENV{HTTP_USER_AGENT} // 'OHB-Proxy/1.0';
     my $tx = $ua->build_tx(GET => $url, {'User-Agent' => $original_ua});
 
     # Stream upstream body to stdout chunk-by-chunk.
+    #
+    # NOTE: this closure captures $tx and is stored inside $tx->res->content,
+    # forming a reference cycle (content -> read subscriber -> $tx -> res ->
+    # content). Perl is refcounted and will NOT collect a cycle, so in a
+    # persistent worker this would leak one whole transaction per request. We
+    # break it explicitly with unsubscribe('read') after the request completes.
     $tx->res->content->unsubscribe('read')->on(read => sub {
         my ($content, $bytes) = @_;
         return if $aborted;
@@ -85,29 +99,33 @@ while (my $q = CGI::Fast->new) {
 
         my $written = syswrite(STDOUT, $bytes);
         if (!defined $written) {
-            # Client gone (EPIPE). Cancel upstream transaction.
+            # Client gone (EPIPE). Close the upstream connection: this ends the
+            # blocking start below promptly and sends a FIN to pskr-mqtt-cache so
+            # it stops producing a response nobody is listening for.
             $aborted = 1;
-            $tx->res->error({message => "client write failed: $!"});
-            Mojo::IOLoop->stop;
+            if (my $cid = $tx->connection) {
+                $ua->ioloop->remove($cid);
+            }
         }
     });
 
-    # Start non-blocking transaction
-    $ua->start($tx => sub {
-        my ($ua, $tx) = @_;
-        Mojo::IOLoop->stop;
-    });
+    # Blocking start. Read events still fire as bytes arrive (so the response is
+    # streamed, not buffered), and it returns when the transaction finishes or
+    # when we close the connection above. Using the UA's own private ioloop this
+    # way — instead of hand-driving Mojo::IOLoop->start/stop with a persistent
+    # completion callback — means there is no stale callback from one request
+    # that can fire during the next.
+    $ua->start($tx);
 
-    # Run the loop for this single transaction
-    Mojo::IOLoop->start;
+    # Break the read-callback -> $tx -> content reference cycle so this
+    # transaction (and its buffers) are actually reclaimed. Runs on every path.
+    $tx->res->content->unsubscribe('read');
 
-    # Post-mortem handling for this request
+    # Post-mortem handling for this request.
     if ($aborted) {
-        next; # Move on to the next FastCGI request
+        # Client disconnected mid-stream; nothing left to send.
     }
-
-    my $err = $tx->error;
-    if ($err) {
+    elsif (my $err = $tx->error) {
         if (!$headers_sent) {
             my $msg = $err->{message} // 'unknown';
             print STDERR "fetchPSKReporter: upstream failed: $msg ($url)\n";
@@ -118,14 +136,18 @@ while (my $q = CGI::Fast->new) {
                 "\r\n" .
                 $body);
         }
-        next;
     }
-
-    if (!$headers_sent) {
+    elsif (!$headers_sent) {
+        # Complete response with no body (e.g. 0-byte 200): the read callback
+        # never emitted headers, so do it here.
         emit_headers($tx->res);
         my $body = $tx->res->body // '';
         syswrite(STDOUT, $body) if length $body;
     }
+
+    undef $tx;                              # free now, during the idle wait,
+                                            # rather than at the next build_tx
+    last if ++$reqs >= $MAX_REQUESTS;       # recycle worker; manager respawns it
 }
 
 exit;

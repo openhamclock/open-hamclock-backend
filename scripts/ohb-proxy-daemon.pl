@@ -26,6 +26,7 @@ app->log->level('info');
 # —————————————————————————
 # Configuration
 # —————————————————————————
+
 my $pskr_host   = $ENV{PSKR_MQTT_CACHE_HOST} || 'pskr-mqtt-cache:5000';
 my $voacap_host = $ENV{VOACAP_SERVICE_HOST}  || 'voacap-service:8080';
 
@@ -49,6 +50,7 @@ my $ua_voacap = Mojo::UserAgent->new
 # —————————————————————————
 # Routes
 # —————————————————————————
+
 get '/ham/HamClock/fetchPSKReporter.pl' => sub {
     my $c = shift;
     proxy_request($c, "http://$pskr_host/ham/HamClock/fetchPSKReporter.pl", 0);
@@ -118,7 +120,7 @@ sub proxy_request {
     my $tx = $ua->build_tx(GET => $url, {'User-Agent' => $original_ua});
 
     my $headers_sent = 0;
-    my $aborted      = 0;
+    my $aborted = 0;
 
     # Detect downstream client disconnect
     $c->tx->on(finish => sub {
@@ -137,7 +139,6 @@ sub proxy_request {
         if (!$headers_sent) {
             $c->res->code($tx->res->code);
             $c->res->message($tx->res->message);
-
             my $headers = $tx->res->headers->to_hash(1);
             for my $name (keys %$headers) {
                 next if $name =~ /^(Transfer-Encoding|Connection|Content-Length|Client-)/i;
@@ -159,8 +160,16 @@ sub proxy_request {
     # Start non-blocking request
     $ua->start($tx => sub {
         my ($ua, $tx) = @_;
+        # Break the read-callback -> $tx -> content reference cycle, and drop the
+        # downstream disconnect watcher, so this request's upstream transaction,
+        # its buffers, and the captured controller can be reclaimed. This MUST run
+        # on every path (including abort) — without it Perl's refcounting leaks one
+        # request's object graph per hit and the daemon's RSS climbs until OOM.
+        # Dropping 'finish' also avoids a spurious upstream-connection close on the
+        # normal-completion path, which would otherwise defeat keep-alive pooling.
+        $tx->res->content->unsubscribe('read');
+        $c->tx->unsubscribe('finish');
         return if $aborted;
-
         my $err = $tx->error;
         if ($err) {
             if (!$headers_sent) {
@@ -181,6 +190,7 @@ sub proxy_request {
 
 sub emit_zero_response {
     my ($c, $qs, $err_msg, $url) = @_;
+
     app->log->error("fetchBandConditions: voacap-service error: $err_msg ($url)");
 
     my %p;

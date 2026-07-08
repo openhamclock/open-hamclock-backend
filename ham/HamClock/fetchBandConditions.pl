@@ -2,13 +2,15 @@
 #
 # fetchBandConditions.pl - HamClock band conditions proxy to voacap-service
 #
-# Non-blocking HTTP proxy. Forwards the HamClock query string to
-# voacap-service and streams the small text response back.
+# HTTP proxy. Forwards the HamClock query string to voacap-service and
+# streams the small text response back.
 #
-# Same disconnect-detection model as fetchVOACAPArea.pl — see that file
-# for rationale. Band conditions has a smaller response (~2 KB) and a
-# tighter timeout (45s) than the area maps, but uses identical machinery
-# for consistency.
+# Runs as a persistent FastCGI worker (CGI::Fast) with one hoisted
+# Mojo::UserAgent keeping a keep-alive pool to voacap-service. Same
+# disconnect-detection model as fetchVOACAPArea.pl — see that file for
+# rationale. Band conditions has a smaller response (~2 KB) and a tighter
+# timeout (45s) than the area maps, but uses identical machinery for
+# consistency.
 #
 # Configuration (environment variables):
 #   VOACAP_SERVICE_URL  Base URL of voacap-service.
@@ -35,10 +37,20 @@ my $ENDPOINT    = "$SERVICE_URL/fetchBandConditions.pl";
 #   This Mojo timeout          = 45s   <-- matches nginx so we give up together
 #   lighttpd server.max-read-idle = 60s default
 #   uWSGI harakiri             = 300s  (uwsgi.ini)
-my $TIMEOUT = 45;
+#
+# NOTE: intentionally only request_timeout, NOT inactivity_timeout. voacapl
+# runs as a subprocess and can be SILENT for tens of seconds before emitting
+# the whole ~2 KB result in one burst, so an idle timeout would kill valid slow
+# predictions. (The PSK shim can afford a short inactivity_timeout because its
+# upstream is a cache that streams promptly; this one cannot.)
+my $TIMEOUT      = 45;
+my $MAX_REQUESTS = 500;   # recycle this worker after N requests so a long-lived
+                          # Perl process can't slowly bloat; the FastCGI manager
+                          # respawns a fresh one.
 
-# Instantiate the UserAgent ONCE globally.
-# Allows Mojo to maintain a connection pool to voacap-service across requests.
+# Instantiate the UserAgent ONCE globally so Mojo maintains a keep-alive pool to
+# voacap-service across requests. The blocking $ua->start (below) runs on the
+# UA's own ioloop, where that pool lives, so pooling survives across requests.
 my $ua = Mojo::UserAgent->new
     ->connect_timeout(5)
     ->request_timeout($TIMEOUT)
@@ -48,6 +60,7 @@ my $ua = Mojo::UserAgent->new
 # FastCGI Main Loop
 # —————————————————————————
 
+my $reqs = 0;
 while (my $q = CGI::Fast->new) {
     my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
 
@@ -60,8 +73,13 @@ while (my $q = CGI::Fast->new) {
             $last_line = $line if $line =~ /\S/;
         }
         close $fh;
-        my @parts = split ' ', $last_line if $last_line;
-        $ssn = $parts[3] if @parts >= 4;
+        # NOTE: `my @x = ... if COND` is undefined behavior in Perl and, in a
+        # long-lived FastCGI worker, can leave @parts holding a PREVIOUS
+        # request's value when this file is empty. Guard explicitly instead.
+        if (defined $last_line) {
+            my @parts = split ' ', $last_line;
+            $ssn = $parts[3] if @parts >= 4;
+        }
     }
     $qs .= ($qs ? '&' : '') . "ohb-ssn=$ssn";
     my $url = "$ENDPOINT?$qs";
@@ -85,26 +103,32 @@ while (my $q = CGI::Fast->new) {
 
         my $written = syswrite(STDOUT, $bytes);
         if (!defined $written) {
+            # Client gone (EPIPE). Close the upstream connection: this ends the
+            # blocking start below promptly and sends a FIN to voacap-service so
+            # it stops working on a response nobody is listening for.
             $aborted = 1;
-            $tx->res->error({message => "client write failed: $!"});
-            Mojo::IOLoop->stop;
+            if (my $cid = $tx->connection) {
+                $ua->ioloop->remove($cid);
+            }
         }
     });
 
-    $ua->start($tx => sub {
-        my ($ua, $tx) = @_;
-        Mojo::IOLoop->stop;
-    });
+    # Blocking start on the UA's own ioloop. Read events still fire as bytes
+    # arrive (so the response is streamed, not buffered), and it returns when the
+    # transaction finishes or when we close the connection above. Driving it this
+    # way instead of hand-rolling Mojo::IOLoop->start/stop with a persistent
+    # completion callback means no stale callback from one request can fire
+    # during the next.
+    $ua->start($tx);
 
-    Mojo::IOLoop->start;
+    # Break the read-callback -> $tx -> content reference cycle so this
+    # transaction (and its buffers) are actually reclaimed. Runs on every path.
+    $tx->res->content->unsubscribe('read');
 
     if ($aborted) {
-        # HamClock gone — nothing useful to write. Just move to next request.
-        next;
+        # HamClock gone mid-stream — nothing left to write.
     }
-
-    my $err = $tx->error;
-    if ($err) {
+    elsif (my $err = $tx->error) {
         # Upstream failed. HamClock expects a specific zero-output format on
         # failure so its band-conditions panel shows blanks rather than an error.
         if (!$headers_sent) {
@@ -112,14 +136,15 @@ while (my $q = CGI::Fast->new) {
                          ($err->{message} // 'unknown'), " ($url)\n";
             emit_zero_output($qs);
         }
-        next;
     }
-
-    if (!$headers_sent) {
+    elsif (!$headers_sent) {
         emit_headers($tx->res);
         my $body = $tx->res->body // '';
         syswrite(STDOUT, $body) if length $body;
     }
+
+    undef $tx;                              # free now, during the idle wait
+    last if ++$reqs >= $MAX_REQUESTS;       # recycle worker; manager respawns it
 }
 
 exit 0;

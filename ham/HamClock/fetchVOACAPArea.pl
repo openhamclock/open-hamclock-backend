@@ -2,8 +2,9 @@
 #
 # fetchVOACAPArea.pl - HamClock VOACAP area-coverage proxy to voacap-service
 #
-# Non-blocking HTTP proxy. Forwards the HamClock query string to the
-# voacap-service container and streams the response back unchanged.
+# Streaming HTTP proxy, persistent FastCGI worker. Forwards the HamClock query
+# string to the voacap-service container and streams the response back unchanged.
+# One hoisted Mojo::UserAgent keeps a keep-alive pool to voacap-service.
 #
 # WHY NON-BLOCKING:
 #   HamClock's client-side fetch timeout is short (~2s). voacap-service
@@ -55,10 +56,18 @@ my $ENDPOINT    = "$SERVICE_URL/fetchVOACAPArea.pl";
 
 # Hard upper bound on the proxied request. Matches voacap-service's
 # uWSGI harakiri ceiling so legitimate slow maps still complete.
-my $TIMEOUT = 300;
+#
+# NOTE: only request_timeout, NOT inactivity_timeout. voacapl runs as a
+# subprocess and can be SILENT for many seconds before emitting the map in one
+# burst, so an idle timeout would kill valid slow renders.
+my $TIMEOUT      = 300;
+my $MAX_REQUESTS = 500;   # recycle this worker after N requests so a long-lived
+                          # Perl process can't slowly bloat; the FastCGI manager
+                          # respawns a fresh one.
 
-# Instantiate the UserAgent ONCE globally.
-# Allows Mojo to maintain a connection pool to voacap-service across requests.
+# Instantiate the UserAgent ONCE globally so Mojo maintains a keep-alive pool to
+# voacap-service across requests. The blocking $ua->start (below) runs on the
+# UA's own ioloop, where that pool lives, so pooling survives across requests.
 my $ua = Mojo::UserAgent->new
     ->connect_timeout(5)
     ->request_timeout($TIMEOUT)
@@ -68,6 +77,7 @@ my $ua = Mojo::UserAgent->new
 # FastCGI Main Loop
 # —————————————————————————
 
+my $reqs = 0;
 while (my $q = CGI::Fast->new) {
     # Forward query string verbatim. voacap-service handles validation.
     my $qs  = $ENV{QUERY_STRING} || $ARGV[0] || '';
@@ -81,8 +91,13 @@ while (my $q = CGI::Fast->new) {
             $last_line = $line if $line =~ /\S/;
         }
         close $fh;
-        my @parts = split ' ', $last_line if $last_line;
-        $ssn = $parts[3] if @parts >= 4;
+        # NOTE: `my @x = ... if COND` is undefined behavior in Perl and, in a
+        # long-lived FastCGI worker, can leave @parts holding a PREVIOUS
+        # request's value when this file is empty. Guard explicitly instead.
+        if (defined $last_line) {
+            my @parts = split ' ', $last_line;
+            $ssn = $parts[3] if @parts >= 4;
+        }
     }
     $qs .= ($qs ? '&' : '') . "ohb-ssn=$ssn";
     my $url = "$ENDPOINT?$qs";
@@ -114,32 +129,36 @@ while (my $q = CGI::Fast->new) {
 
         my $written = syswrite(STDOUT, $bytes);
         if (!defined $written) {
-            # Client gone (EPIPE) or other write error. Cancel upstream so the
-            # socket closes and the disconnect propagates to voacap-service.
+            # Client gone (EPIPE). Close the upstream connection: this ends the
+            # blocking start below promptly and sends a FIN toward voacap-service
+            # so it stops rendering a map nobody is listening for.
             $aborted = 1;
-            $tx->res->error({message => "client write failed: $!"});
-            Mojo::IOLoop->stop;
+            if (my $cid = $tx->connection) {
+                $ua->ioloop->remove($cid);
+            }
         }
     });
 
-    $ua->start($tx => sub {
-        my ($ua, $tx) = @_;
-        Mojo::IOLoop->stop;
-    });
+    # Blocking start on the UA's own ioloop. Read events still fire as bytes
+    # arrive (so the response streams, and the disconnect detection above still
+    # works), and it returns when the transaction finishes or when we close the
+    # connection. Driving it this way instead of hand-rolling Mojo::IOLoop
+    # start/stop with a persistent completion callback means no stale callback
+    # from one request can fire during the next.
+    $ua->start($tx);
 
-    Mojo::IOLoop->start;
+    # Break the read-callback -> $tx -> content reference cycle so this
+    # transaction (and its buffers) are actually reclaimed. Runs on every path.
+    $tx->res->content->unsubscribe('read');
 
     # —————————————————————————
     # Post-mortem
     # —————————————————————————
 
     if ($aborted) {
-        # Client gave up. Upstream is cancelled; move to next request.
-        next;
+        # Client gave up mid-stream; the upstream connection is already closed.
     }
-
-    my $err = $tx->error;
-    if ($err) {
+    elsif (my $err = $tx->error) {
         # Upstream connect/read failed. If we haven't sent headers yet, send 502.
         if (!$headers_sent) {
             my $msg = $err->{message} // 'unknown';
@@ -151,17 +170,18 @@ while (my $q = CGI::Fast->new) {
                 "\r\n" .
                 $body);
         }
-        next;
     }
-
-    # Edge case: a successful response with zero body (e.g. an upstream 4xx with
-    # empty body). The read handler may not have fired with any non-zero chunk,
-    # so headers were never emitted. Emit them now.
-    if (!$headers_sent) {
+    elsif (!$headers_sent) {
+        # Edge case: a successful response with zero body (e.g. an upstream 4xx
+        # with empty body); the read handler never fired a non-zero chunk, so
+        # headers were never emitted. Emit them now.
         emit_headers($tx->res);
         my $body = $tx->res->body // '';
         syswrite(STDOUT, $body) if length $body;
     }
+
+    undef $tx;                              # free now, during the idle wait
+    last if ++$reqs >= $MAX_REQUESTS;       # recycle worker; manager respawns it
 }
 
 exit 0;
