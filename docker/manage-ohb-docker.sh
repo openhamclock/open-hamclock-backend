@@ -1192,7 +1192,7 @@ EOF
       WSPR_MAX_QUERY_AGE_SECONDS: 86400
       WSPR_RESPONSE_CACHE_SECONDS: 45
       WSPR_API_UPSTREAM_DISABLED: "true"
-      WSPR_RETENTION_HOURS: "7"
+      WSPR_RETENTION_HOURS: "24"
     networks:
       - ohb
     volumes:
