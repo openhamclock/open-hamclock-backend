@@ -53,6 +53,17 @@ my $CACHE_DIR = '/opt/hamclock-backend/cache/hamclock-wx-cache/';
 my $WX_TTL    = $ENV{'WX_CACHE_TTL'} // 600;   # 10 min: matches OWM/Open-Meteo update cadence
 my $TZ_TTL    = $ENV{'TZ_CACHE_TTL'} // 3600;  # 1 hr: DST offset doesn't change more often than this
 
+# -------------------------
+# Barometer trend config
+# -------------------------
+# Trend is derived from a small local history of pressure_hPa readings we
+# already collect for the main WX display -- NOT from an extra upstream API
+# call. This is what makes it cheap: it piggybacks on the existing $WX_TTL
+# polling instead of querying the weather provider again.
+my $TREND_WINDOW_SECS    = $ENV{'WX_TREND_WINDOW_SECS'} // 10800; # 3 hr: standard METAR/aviation pressure-tendency period
+my $TREND_STEADY_HPA     = $ENV{'WX_TREND_STEADY_HPA'}  // 1.0;   # +/- this much over the window still reads as "steady"
+my $TREND_MIN_SAMPLE_GAP = 300;                                   # don't log more than 1 sample/5 min even if polled harder
+
 eval { make_path($CACHE_DIR) unless -d $CACHE_DIR; };
 
 # -------------------------
@@ -101,6 +112,11 @@ if (defined $lat && defined $lng && looks_like_coord($lat) && looks_like_coord($
 
     # Weather: serve from cache if fresh; otherwise fetch and repopulate cache.
     get_weather_cached($lat, $lng, \%wx);
+
+    # Barometer trend: like timezone, this is computed fresh every request
+    # (not tied to $WX_TTL) since it's just a local file read/append, not an
+    # upstream call.
+    $wx{pressure_chg} = get_pressure_trend($lat, $lng, $wx{pressure_hPa});
 }
 
 hc_output(%wx);
@@ -127,9 +143,11 @@ sub get_weather_cached {
 
     if ($ok) {
         # Cache everything needed to reconstruct the response, but not the
-        # timezone (that has its own cache/TTL and source-of-truth logic).
+        # timezone or pressure_chg -- those are computed fresh every request
+        # from their own local state, not tied to $WX_TTL.
         my %to_cache = %$wx;
         delete $to_cache{timezone};
+        delete $to_cache{pressure_chg};
         cache_set($file, \%to_cache);
     } else {
         # Both live sources failed -- serve stale cache instead of -999s if we have it.
@@ -227,6 +245,73 @@ sub _tz_timezonedb {
     return undef unless ($data->{status} // '') eq 'OK';
     return undef unless defined $data->{gmtOffset};
     return int($data->{gmtOffset});
+}
+
+# -------------------------
+# Barometer trend (rising / steady / falling)
+# -------------------------
+# HamClock's WXInfo.pressure_chg is a signed byte; the client only looks at
+# its sign to pick the up/steady/down arrow graphic. So all we owe it is:
+#   negative = falling, 0 = steady, positive = rising, -999 = unknown.
+#
+# We derive this from a small local log of pressure_hPa readings for this
+# location (same 0.1-degree bucket as the weather cache) instead of calling
+# the weather provider again. Each request appends the current reading
+# (throttled to 1 per $TREND_MIN_SAMPLE_GAP) and prunes anything older than
+# $TREND_WINDOW_SECS, then compares "now" to the oldest sample still in the
+# window (~3 hours back, the standard aviation pressure-tendency period).
+sub get_pressure_trend {
+    my ($lat, $lng, $pressure_hPa) = @_;
+    return -999 unless defined $pressure_hPa && $pressure_hPa != -999;
+
+    my $file = cache_key('ptrend', $lat, $lng);
+    my $hist = pressure_history_get($file);
+    my $now  = time();
+
+    push @$hist, [$now, $pressure_hPa + 0]
+        if !@$hist || ($now - $hist->[-1][0]) >= $TREND_MIN_SAMPLE_GAP;
+
+    my $cutoff = $now - $TREND_WINDOW_SECS - $TREND_MIN_SAMPLE_GAP;
+    @$hist = grep { $_->[0] >= $cutoff } @$hist;
+    pressure_history_set($file, $hist);
+
+    # Oldest sample that's at least ~$TREND_WINDOW_SECS old.
+    my $target = $now - $TREND_WINDOW_SECS;
+    my $past;
+    for my $s (@$hist) {
+        $past = $s if $s->[0] <= $target && (!$past || $s->[0] > $past->[0]);
+    }
+    return 0 unless $past;   # not enough history yet -- call it steady, not a guess
+
+    my $delta = $pressure_hPa - $past->[1];
+    return 0 if abs($delta) < $TREND_STEADY_HPA;
+    return $delta > 0 ? 1 : -1;
+}
+
+sub pressure_history_get {
+    my ($file) = @_;
+    return [] unless -f $file;
+    open(my $fh, '<', $file) or return [];
+    flock($fh, LOCK_SH);
+    local $/;
+    my $json = <$fh>;
+    close($fh);
+    my $data = eval { decode_json($json) };
+    return ($@ || ref($data) ne 'ARRAY') ? [] : $data;
+}
+
+sub pressure_history_set {
+    my ($file, $hist) = @_;
+    my $tmp = "$file.tmp.$$";
+    my $ok = eval {
+        open(my $fh, '>', $tmp) or die "open: $!";
+        flock($fh, LOCK_EX);
+        print $fh encode_json($hist);
+        close($fh);
+        rename($tmp, $file) or die "rename: $!";
+        1;
+    };
+    unlink($tmp) if !$ok && -f $tmp;
 }
 
 # -------------------------
@@ -363,7 +448,14 @@ sub cache_key {
     my ($prefix, $lat, $lng) = @_;
     my $rlat = sprintf("%.1f", $lat + 0);
     my $rlng = sprintf("%.1f", $lng + 0);
-    return "$CACHE_DIR/$prefix-$rlat-$rlng.json";
+    # "_" as separator (never appears in a formatted number) avoids a
+    # visually-ambiguous "--" run for negative coordinates, e.g.
+    # wx_46.9_-96.8.json instead of wx-46.9--96.8.json. Purely cosmetic:
+    # the old "-"-joined form was already collision-free since %.1f always
+    # yields exactly one digit after the decimal point, so the separator's
+    # position was never actually ambiguous to the code -- only to a human
+    # skimming `ls`.
+    return "${CACHE_DIR}/${prefix}_${rlat}_${rlng}.json";
 }
 
 sub cache_get {
