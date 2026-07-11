@@ -852,7 +852,7 @@ determine_http_log() {
     fi
 
     if [ "$ENABLE_EXTERNAL_HTTP_LOG" == true ]; then
-        EXTERNAL_HTTP_LOG_MAPPING="- $HERE/logs/lighttpd:/var/log/lighttpd:rw"
+        EXTERNAL_HTTP_LOG_MAPPING="- $HERE/logs/lighttpd:/var/log/nginx:rw"
         if [ "${FUNCNAME[2]}" == "docker_compose_up" ]; then
             if [ ! -e "$HERE/logs/lighttpd" ]; then
                 mkdir -p "$HERE/logs/lighttpd"
@@ -888,7 +888,7 @@ determine_https_cert() {
         HTTPS_CERT_MAPPING=""
     else
         # if there was a :, it was probably IP:PORT; otherwise make sure there's a colon for port only
-        HTTPS_CERT_MAPPING="- $CERT_PATH:/etc/lighttpd/server.pem"
+        HTTPS_CERT_MAPPING="- $CERT_PATH:/etc/nginx/server.pem"
     fi
 }
 
