@@ -1,20 +1,16 @@
-/var/log/lighttpd/*.log {
+/var/log/nginx/*.log {
     daily
     missingok
-    # keep non-anonymized for 2 weeks
     rotate 15
     notifempty
     copytruncate
     sharedscripts
 
-    # Anonymize the file that was just timestamped today
     postrotate
-        # Finds the log file ending in today's date (YYYYMMDD)
         TODAY=$(date +%Y%m%d)
-        TARGET="/var/log/lighttpd/access.log-$TODAY"
+        TARGET="/var/log/nginx/access.log-$TODAY"
  
         if [ -f "$TARGET" ]; then
-            # Anonymize the file and give it a new name
             anonip --input "$TARGET" | sed 's/call=[^&]\+/call=W1AW/' | gzip > "$TARGET.anon.gz"
         fi
     endscript

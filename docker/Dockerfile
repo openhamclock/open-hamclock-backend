@@ -61,8 +61,9 @@ RUN cd /opt/hamclock-backend && \
     # \
     echo $GIT_VERSION > git.version && \
     # \
+    mkdir -p /etc/nginx && \
     openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes \
-        -keyout /etc/lighttpd/server.pem -out /etc/lighttpd/server.pem \
+        -keyout /etc/nginx/server.pem -out /etc/nginx/server.pem \
         -subj "/C=US/ST=State/L=City/O=Organization/OU=IT/CN=localhost"
 
 # Install hamclock-backend
@@ -103,15 +104,18 @@ RUN cd /opt/hamclock-backend && \
     # \
     # set up logrotate \
     mv logrotate/ohb.logrotate /etc/logrotate.d/ohb && \
-    mv logrotate/lighttpd.logrotate /etc/logrotate.d/lighttpd && \
-    chown root:root /etc/logrotate.d/ohb /etc/logrotate.d/lighttpd && \
+    mv logrotate/nginx.logrotate /etc/logrotate.d/nginx && \
+    chown root:root /etc/logrotate.d/ohb /etc/logrotate.d/nginx && \
     # I like dates in the rotated filenames \
     sed -i 's/^#dateext/dateext/' /etc/logrotate.conf && \
+    # \
+    # set up nginx \
+    cp nginx-conf/default /etc/nginx/sites-available/default && \
+    ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default && \
     # \
     # set up lighttpd \
     cp lighttpd-conf/*.conf /etc/lighttpd/conf-available/ && \
     /usr/sbin/lighty-disable-mod javascript-alias && \
-    /usr/sbin/lighty-enable-mod accesslog && \
     /usr/sbin/lighttpd-enable-mod hamclock && \
     /usr/sbin/lighttpd-enable-mod voacap-cgi-timeouts && \
     /usr/sbin/lighttpd-enable-mod hc-firmware && \
@@ -119,7 +123,6 @@ RUN cd /opt/hamclock-backend && \
     /usr/sbin/lighttpd-enable-mod hc-diag && \
     /usr/sbin/lighttpd-enable-mod proxy-endpoints && \
     /usr/sbin/lighttpd-enable-mod pskr-cgi && \
-    /usr/sbin/lighttpd-enable-mod ssl && \
     # \
     # ImageMagick policy parameters need to be increased \
     sed -i 's/name="memory" value="[^"]*"/name="memory" value="2GiB"/' /etc/ImageMagick-?/policy.xml && \

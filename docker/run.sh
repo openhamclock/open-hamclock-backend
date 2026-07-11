@@ -72,6 +72,9 @@ echo "Starting OHB Proxy Daemon ..."
 echo "Starting lighttpd ..."
 /usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf
 
+echo "Starting nginx ..."
+/usr/sbin/nginx
+
 
 # only needs to be primed when docker volume container is instantiated
 if [ ! -e /opt/hamclock-backend/htdocs/state/prime_crontabs.done ]; then
