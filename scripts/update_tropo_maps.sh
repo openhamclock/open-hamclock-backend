@@ -524,7 +524,7 @@ if DN == "D":
     overlay = Image.new("RGB", img.size, (205, 220, 205))
     img = Image.blend(img, overlay, alpha=0.20)
 elif DN == "N":
-    img = ImageEnhance.Brightness(img).enhance(0.15)
+    img = ImageEnhance.Brightness(img).enhance(0.46)
 pixels = img.tobytes()
 
 pix = bytearray(W * H * 2)
