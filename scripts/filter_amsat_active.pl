@@ -60,6 +60,11 @@ my %ALIAS = (
     'AO-123_[SSTV]'     => { tle => 'ASRTU-1 (AO-123)',        out => 'AO-123'     },
     'FO-29'             => { tle => 'JAS-2 (FO-29)',           out => 'FO-29'      },
     'FO-29_[V/U]'       => { tle => 'JAS-2 (FO-29)',           out => 'FO-29'      },
+    # --- FO-126 (OrigamiSat-2, Institute of Science Tokyo) — launched 2026-04-23, OSCAR designated 2026-05 ---
+    # Celestrak name unconfirmed against live feed; both hyphen/space forms hedged below.
+    'FO-126'             => { tle => 'ORIGAMISAT-2',           out => 'FO-126'     },
+    'FO-126_[UHF_TLM]'   => { tle => 'ORIGAMISAT-2',           out => 'FO-126'     },
+    'ORIGAMISAT-2'        => { tle => 'ORIGAMISAT 2',          out => 'FO-126'     },
     'JO-97'             => { tle => 'JY1SAT (JO-97)',          out => 'JO-97'      },
     'SO-50'             => { tle => 'SAUDISAT 1C (SO-50)',     out => 'SO-50'      },
     'SO-50_[FM]'        => { tle => 'SAUDISAT 1C (SO-50)',     out => 'SO-50'      },
@@ -98,6 +103,12 @@ my %ALIAS = (
     'RS18S_[SSTV]'      => { tle => '',                        out => ''           },  # not in Celestrak
     'RS38S'             => { tle => 'VIZARD-METEO (RS38S)',    out => 'RS38S'      },  # NORAD 57189
     'RS38S_[SSTV]'      => { tle => 'VIZARD-METEO (RS38S)',    out => 'RS38S'      },  # NORAD 57189
+    'RS27S'             => { tle => 'UTMN 2 (RS27S)',          out => 'RS27S'      },  # Space-Pi program, launched 2023-06-27; confirmed live 2026-07-12
+    'RS27S_[SSTV]'      => { tle => 'UTMN 2 (RS27S)',          out => 'RS27S'      },
+    'RS57S'             => { tle => 'MONITOR-4 (RS57S)',       out => 'RS57S'      },  # NORAD 57182
+    'RS57S_[SSTV]'      => { tle => 'MONITOR-4 (RS57S)',       out => 'RS57S'      },
+    'RS66S'             => { tle => 'HYPERVIEW 1G (RS66S)',    out => 'RS66S'      },
+    'RS66S_[SSDV]'      => { tle => 'HYPERVIEW 1G (RS66S)',    out => 'RS66S'      },
 
     # --- GEO / no TLE ---
     'QO-100 NB'         => { tle => '',                        out => ''           },
@@ -139,11 +150,17 @@ my %ALIAS = (
     'GRBBETA_[UHF_DIGI]'=> { tle => 'GRBBETA',                 out => 'GRBBeta'    },
     'GRBBETA_[VHF_DIGI]'=> { tle => 'GRBBETA',                 out => 'GRBBeta'    },
 
-    # --- HADES-SA (AMSAT-EA, Spain) — temp NORAD 98380, launched 2026-03-30 ---
-    'HADES-SA'              => { tle => 'HADES-SA',            out => 'HADES-SA'   },
-    'HADES-SA_[CODEC2]'     => { tle => 'HADES-SA',            out => 'HADES-SA'   },
-    'HADES-SA_[FSK]'        => { tle => 'HADES-SA',            out => 'HADES-SA'   },
-    'HADES-SA_[SSDV]'       => { tle => 'HADES-SA',            out => 'HADES-SA'   },
+    # --- HADES-SA / SpinnyONE (AMSAT-EA, Spain) — NORAD 68446, launched 2026-03-30 ---
+    # Celestrak carries it as "HADES-SA (SPINNYONE)" (confirmed live 2026-07-12), not bare "HADES-SA".
+    # AMSAT designated this satellite Spain-OSCAR 127 (SO-127) on 2026-06-07 (ANS-158).
+    # Same physical spacecraft/TLE as HADES-SA below — keep 'out' consistent so esats.txt
+    # doesn't end up with two rows for one bird.
+    'HADES-SA'              => { tle => 'HADES-SA (SPINNYONE)', out => 'HADES-SA'   },
+    'HADES-SA_[CODEC2]'     => { tle => 'HADES-SA (SPINNYONE)', out => 'HADES-SA'   },
+    'HADES-SA_[FSK]'        => { tle => 'HADES-SA (SPINNYONE)', out => 'HADES-SA'   },
+    'HADES-SA_[SSDV]'       => { tle => 'HADES-SA (SPINNYONE)', out => 'HADES-SA'   },
+    'SO-127'                => { tle => 'HADES-SA (SPINNYONE)', out => 'HADES-SA'   },
+    'SO-127_[FSK]'          => { tle => 'HADES-SA (SPINNYONE)', out => 'HADES-SA'   },
 
     # --- CAS-3H (LilacSat-2, Harbin) — NORAD 40908 ---
     # Celestrak feed uses "LILACSAT-2" (hyphen); CATNR rename writes "LILACSAT 2" (space)
@@ -170,6 +187,26 @@ my %ALIAS = (
     # --- SilverSat ---
     'SILVERSAT'         => { tle => 'SILVERSAT',               out => 'SilverSat'  },
     'SILVERSAT_[SSDV]'  => { tle => 'SILVERSAT',               out => 'SilverSat'  },
+
+    # --- HC1PX / Ecuador-UTE-YuZGU (Universidad Tecnologica Equinoccial) — NORAD 42832 ---
+    # Old bird (launched 2017); name form on Celestrak unconfirmed — hedging space vs hyphen.
+    'HC1PX'              => { tle => 'ECUADOR UTE-YUZGU',      out => 'HC1PX'      },
+    'HC1PX_[SSTV]'        => { tle => 'ECUADOR UTE-YUZGU',     out => 'HC1PX'      },
+    'ECUADOR-UTE-YUZGU'   => { tle => 'ECUADOR-UTE-YUZGU',     out => 'HC1PX'      },
+
+    # --- Flamingo-1 (Vyoma, Germany) — not an amateur satellite; tracked for its UHF ---
+    # --- music-tone RF identifier beacon (400-402 MHz), similar to OTP-2 above. NORAD 67391 ---
+    'FLAMINGO-1'          => { tle => 'FLAMINGO-1',            out => 'Flamingo-1' },  # confirmed live 2026-07-12
+    'FLAMINGO-1_[MUSIC]'  => { tle => 'FLAMINGO-1',            out => 'Flamingo-1' },
+
+    # --- TEVEL2 constellation (Tel Aviv University / Herzliya, follow-on to TEVEL) ---
+    # Launched 2025-03; Celestrak carries these under their literal TEVEL2-N names.
+    'TEVEL2-3'            => { tle => 'TEVEL2-3',              out => 'TEVEL2-3'   },
+    'TEVEL2-3_[FM]'       => { tle => 'TEVEL2-3',              out => 'TEVEL2-3'   },
+    'TEVEL2-5'            => { tle => 'TEVEL2-5',              out => 'TEVEL2-5'   },
+    'TEVEL2-5_[FM]'       => { tle => 'TEVEL2-5',              out => 'TEVEL2-5'   },
+    'TEVEL2-7'            => { tle => 'TEVEL2-7',              out => 'TEVEL2-7'   },
+    'TEVEL2-7_[FM]'       => { tle => 'TEVEL2-7',              out => 'TEVEL2-7'   },
 
     'HST'     => { tle => 'HST',     out => 'HUBBLE' },
     'NOAA-15' => { tle => 'NOAA 15', out => 'NOAA-15' },
