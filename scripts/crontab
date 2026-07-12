@@ -60,6 +60,7 @@ LANG=C
 0 1 * * *      $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_ssn_history.pl
 
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/web15rss_fetch.py
+*/10 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/fetch_hamqsl.py
 
 */2 * * * *    $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/poll_activenets.py
 
