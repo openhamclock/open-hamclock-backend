@@ -46,6 +46,7 @@ python3-pandas
 python3-paho-mqtt
 python3-pyproj
 python3-requests
+python3-websockets
 python3-sgp4
 unzip
 zip
