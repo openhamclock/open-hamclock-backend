@@ -54,6 +54,7 @@ THRESH_ESATS_FREQ="${THRESH_ESATS_FREQ:-90000 144000 180000}" # 25h 40h 50h
 THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
 THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_MAP="${THRESH_MAP:-3600 7200 14400}"
+THRESH_MUF_RT="${THRESH_MUF_RT:-2700 5400 10800}"
 THRESH_ACTIVENETS="${THRESH_ACTIVENETS:-300 600 1800}" # 5m 10m 30m
 THRESH_CLOUDS="${THRESH_CLOUDS:-3600 7200 14400}"
 THRESH_TROPO="${THRESH_TROPO:-12600 23400 43200}"
@@ -128,6 +129,10 @@ get_thresholds() {
         # map-[D|N]-*-Countries.* and map-[D|N]-*-Terrain* are static
         map-[DN]-*-Countries.*|map-[DN]-*-Terrain*|Terrain*)
             echo "STATIC"
+            return
+            ;;
+        map-[DN]-*-MUF-RT.*)
+            echo "$THRESH_MUF_RT"
             return
             ;;
         map-[DN]-*-Tropo.*)

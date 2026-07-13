@@ -10,7 +10,8 @@ if [[ -n "${PROXY_MAPS:-}" && "${PROXY_MAPS}" != "false" ]]; then
     exit 0
 fi
 
-export GMT_USERDIR=/opt/hamclock-backend/tmp
+export GMT_USERDIR=/opt/hamclock-backend/htdocs/tmp
+mkdir -p "$GMT_USERDIR"
 cd "$GMT_USERDIR"
 
 PYTHON_BIN="/opt/hamclock-backend/venv/bin/python3"
@@ -211,7 +212,8 @@ for DN in D N; do
         PNG="${BASE}.png"
         PNG_FIXED="${BASE}_fixed.png"
         BMP="${BASE}.bmp"
-        OUTFILE="${OUTDIR}/map-${DN}-${SZ}-MUF-RT.bmp.z"
+        F_BMP="${OUTDIR}/map-${DN}-${SZ}-MUF-RT.bmp"
+        F_Z="${OUTDIR}/map-${DN}-${SZ}-MUF-RT.bmp.z"
 
         echo "  -> ${DN} ${SZ}"
 
@@ -298,17 +300,21 @@ with open(outbmp, "wb") as f:
     f.write(pix)
 EOF
         rm -f "$RAW"
-        # Zlib compress → final output
+        # Zlib compress
         python3 - << EOF
 import zlib
 data = open("$BMP", "rb").read()
-open("${OUTFILE}", "wb").write(zlib.compress(data, 9))
+open("${BMP}.z", "wb").write(zlib.compress(data, 9))
 EOF
 
-        echo "    -> ${OUTFILE}"
+        mv "$BMP" "$F_BMP"
+        mv "${BMP}.z" "$F_Z"
+        chmod 0644 "$F_BMP" "$F_Z" 2>/dev/null || true
+
+        echo "    -> ${F_BMP} and ${F_Z}"
 
         # Clean up intermediates for this size
-        rm -f "$PNG" "$PNG_FIXED" "$BMP"
+        rm -f "$PNG" "$PNG_FIXED"
 
     done
 done
