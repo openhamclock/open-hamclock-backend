@@ -15,4 +15,8 @@
 /tmp/
 
 # things to delete in this release
-/ham/HamClock/drap/last_valid_date.txt
+/ham/HamClock/fetchBandConditions.pl
+/ham/HamClock/fetchPSKReporter.pl
+/ham/HamClock/fetchVOACAP-MUF.pl
+/ham/HamClock/fetchVOACAP-TOA.pl
+/ham/HamClock/fetchVOACAPArea.pl
