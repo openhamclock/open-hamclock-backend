@@ -18,6 +18,7 @@
 use strict;
 use warnings;
 
+use JSON;
 use Mojolicious::Lite;
 use Mojo::UserAgent;
 
@@ -71,9 +72,88 @@ get '/ham/HamClock/fetchVOACAP-TOA.pl' => sub {
     proxy_request($c, "http://$voacap_host/ham/HamClock/fetchVOACAP-TOA.pl", 0);
 };
 
+
 get '/ham/HamClock/fetchVOACAP-MUF.pl' => sub {
     my $c = shift;
     proxy_request($c, "http://$voacap_host/ham/HamClock/fetchVOACAP-MUF.pl", 0);
+};
+
+# —————————————————————————
+# Lightning strikes caching and endpoint
+# —————————————————————————
+
+my $CACHE_FILE = '/opt/hamclock-backend/cache/lightning_global.json';
+my $MAX_AGE    = 600;  # seconds - should match LIGHTNING_MAX_AGE in HamClock
+my $DEG2RAD    = 3.14159265358979 / 180;
+
+my $cached_data  = undef;
+my $cached_mtime = 0;
+
+sub get_cached_data {
+    my @st = stat($CACHE_FILE);
+    return undef unless @st;
+    my $mtime = $st[9];
+
+    if (!defined($cached_data) || $mtime != $cached_mtime) {
+        my $data = eval {
+            open my $fh, '<', $CACHE_FILE or die "open: $!";
+            local $/;
+            decode_json(<$fh>);
+        };
+        if ($@ || !$data) {
+            app->log->warn("strikes.pl: cache read failed: $@") if $@;
+            return $cached_data;
+        }
+        $cached_data  = $data;
+        $cached_mtime = $mtime;
+    }
+    return $cached_data;
+}
+
+get '/ham/HamClock/lightning/strikes.pl' => sub {
+    my $c = shift;
+
+    my $lat    = $c->param('lat');
+    my $lon    = $c->param('lon');
+    my $radius = $c->param('radius');
+    my $maxage = $c->param('maxage');
+
+    $lat    = (defined $lat    && $lat    =~ /^[+-]?\d{1,3}(\.\d+)?$/) ? $lat+0    : undef;
+    $lon    = (defined $lon    && $lon    =~ /^[+-]?\d{1,3}(\.\d+)?$/) ? $lon+0    : undef;
+    $radius = (defined $radius && $radius =~ /^\d{1,5}$/)              ? $radius+0 : undef;
+    $maxage = (defined $maxage && $maxage =~ /^\d+$/)                  ? $maxage+0 : $MAX_AGE;
+
+    my $do_filter = (defined $lat && defined $lon && defined $radius && $radius > 0);
+
+    my $data = get_cached_data();
+    if (!$data || !$data->{strikes}) {
+        $c->res->headers->content_type('text/plain');
+        $c->render(text => '');
+        return;
+    }
+
+    my $now_ms = time() * 1000;
+    my $lat1   = $do_filter ? $lat * $DEG2RAD : 0;
+
+    my $out = "";
+    for my $s (@{$data->{strikes}}) {
+        my $age_s = int(($now_ms - $s->{strikeTime}) / 1000);
+        next if $age_s < 0 || $age_s > $maxage;
+
+        if ($do_filter) {
+            my $dlat = ($s->{lat} - $lat) * $DEG2RAD;
+            my $dlon = ($s->{lon} - $lon) * $DEG2RAD;
+            my $lat2 = $s->{lat} * $DEG2RAD;
+            my $a    = sin($dlat/2)**2 + cos($lat1)*cos($lat2)*sin($dlon/2)**2;
+            my $km   = 6371 * 2 * atan2(sqrt($a), sqrt(1-$a));
+            next if $km > $radius;
+        }
+
+        $out .= sprintf("%.4f,%.4f,%d\n", $s->{lat}, $s->{lon}, $age_s);
+    }
+
+    $c->res->headers->content_type('text/plain');
+    $c->render(text => $out);
 };
 
 app->start;

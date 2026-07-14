@@ -123,6 +123,7 @@ RUN cd /opt/hamclock-backend && \
     /usr/sbin/lighttpd-enable-mod hc-diag && \
     /usr/sbin/lighttpd-enable-mod proxy-endpoints && \
     /usr/sbin/lighttpd-enable-mod pskr-cgi && \
+    /usr/sbin/lighttpd-enable-mod lightning-cgi && \
     # \
     # ImageMagick policy parameters need to be increased \
     sed -i 's/name="memory" value="[^"]*"/name="memory" value="2GiB"/' /etc/ImageMagick-?/policy.xml && \
