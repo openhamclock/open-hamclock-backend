@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-REPO="https://github.com/komacke/open-hamclock-backend"
+REPO="https://github.com/openhamclock/open-hamclock-backend"
 BASE="/opt/hamclock-backend"
 VENV="$BASE/venv"
 

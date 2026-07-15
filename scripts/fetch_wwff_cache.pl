@@ -28,7 +28,7 @@
 #  automatically if CQGMA_API_KEY is not set.
 #
 #  Part of the OHB project:
-#  https://github.com/komacke/open-hamclock-backend/tree/main
+#  https://github.com/openhamclock/open-hamclock-backend/tree/main
 #
 ##
 # Copyright (C) 2026 Open HamClock Backend (OHB) Contributors
@@ -93,7 +93,7 @@ for my $d (dirname($OUT), $TMP_DIR) {
 
 my $ua = LWP::UserAgent->new(
     timeout => 15,
-    agent   => 'OHB-WWFF-Cache/1.0 (+https://github.com/komacke/open-hamclock-backend; spot fetcher)',
+    agent   => 'OHB-WWFF-Cache/1.0 (+https://github.com/openhamclock/open-hamclock-backend; spot fetcher)',
 );
 
 my $resp = $ua->get($WWFF_URL);

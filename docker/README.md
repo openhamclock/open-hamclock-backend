@@ -72,22 +72,22 @@ Either get the source tree from GitHub or download the manage-ohb-docker.sh scri
 ### option 1: download the manager:
 Find the tag you want from git:
 ```
-https://github.com/komacke/open-hamclock-backend/tags
+https://github.com/openhamclock/open-hamclock-backend/tags
 ```
 Navigate into the tag, download from ```Manage Docker Installs``` which will get you a file named: ```manage-ohb-docker-<version>.sh```. Rename it and make it executable. Using curl might work like this for v1.0:
 ```
-curl -sLO https://github.com/komacke/open-hamclock-backend/releases/download/v1.0/manage-ohb-docker-v1.0.sh
+curl -sLO https://github.com/openhamclock/open-hamclock-backend/releases/download/v1.0/manage-ohb-docker-v1.0.sh
 mv manage-ohb-docker-v1.0.sh manage-ohb-docker.sh 
 chmod +x manage-ohb-docker.sh
 ```
 Plug in the version you downloaded for v1.0 in this example.
 
 ### option 2: get the GitHub source tree
-The git clone command below should have the right URL but you can check it by visiting https://github.com/komacke/open-hamclock-backend, click on the green "Code" button and copy the https url.
+The git clone command below should have the right URL but you can check it by visiting https://github.com/openhamclock/open-hamclock-backend, click on the green "Code" button and copy the https url.
 
 On your computer, clone the repository:
 ```
-git clone https://github.com/komacke/open-hamclock-backend.git
+git clone https://github.com/openhamclock/open-hamclock-backend.git
 ```
 
 Go into the project's docker directory:
@@ -172,7 +172,7 @@ If it shows the latest version at the end, then use it to upgrade OHB:
 Get the latest manager utility and run the manager utility with 'upgrade' command. Like install, it defaults to the current version, or falls back to latest. If the default version isn't what you want, provide the -t option.
 ```
 # Get the version you want. Let's assume it's version: <version>
-curl -sL -o manage-ohb-docker.sh https://github.com/komacke/open-hamclock-backend/releases/download/<version>/manage-ohb-docker-<version>.sh
+curl -sL -o manage-ohb-docker.sh https://github.com/openhamclock/open-hamclock-backend/releases/download/<version>/manage-ohb-docker-<version>.sh
 
 # Make it executable and double check:
 chmod +x manage-ohb-docker.sh

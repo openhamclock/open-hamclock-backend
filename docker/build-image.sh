@@ -16,7 +16,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # Variables to set
-GIT_REPO=https://github.com/komacke/open-hamclock-backend
+GIT_REPO=https://github.com/openhamclock/open-hamclock-backend
 IMAGE_BASE=komacke/open-hamclock-backend
 VOACAP_VERSION=v.0.7.6
 HTTP_PORT=80
