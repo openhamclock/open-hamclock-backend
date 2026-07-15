@@ -85,8 +85,8 @@ $ua->agent("OHB-External-Verifier/1.0");
 
 # --- Self Upgrade ---
 if ($cmd_upgrade) {
-    logger("Checking for script updates from komacke/open-hamclock-backend...");
-    my $api_url = "https://api.github.com/repos/komacke/open-hamclock-backend/releases/latest";
+    logger("Checking for script updates from openhamclock/open-hamclock-backend...");
+    my $api_url = "https://api.github.com/repos/openhamclock/open-hamclock-backend/releases/latest";
     my $resp = $ua->get($api_url);
     if ($resp->is_success) {
         my $data = decode_json($resp->decoded_content);

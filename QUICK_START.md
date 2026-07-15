@@ -5,7 +5,7 @@ Because of recent changes to depend on other docker containers, we recommend the
 ### Install in a container with Docker
 Download the manager utility that masks all the Docker details. Visit the releases page:
 
-👉 [Releases](https://github.com/komacke/open-hamclock-backend/releases/latest)
+👉 [Releases](https://github.com/openhamclock/open-hamclock-backend/releases/latest)
 and download the asset: **Manage Docker installs**.
 
 Make it executable:
@@ -26,7 +26,7 @@ Full docker installation details:
 Clone and run the installer:
 
 ```bash
-git clone https://github.com/komacke/open-hamclock-backend.git
+git clone https://github.com/openhamclock/open-hamclock-backend.git
 cd open-hamclock-backend
 sudo bash install_ohb.sh --size <desired size list>
 ```
