@@ -19,7 +19,7 @@
 OHB_MANAGER_VERSION=latest
 # tags to use
 DEFAULT_VOACAP_SERVICE_TAG=1.18
-DEFAULT_PSKR_MQTT_CACHE_TAG=1.14
+DEFAULT_PSKR_MQTT_CACHE_TAG=1.15
 DEFAULT_WSPR_LIVE_CACHE_TAG=1.3
 
 GITHUB_LATEST_RELEASE_URL="https://api.github.com/repos/openhamclock/open-hamclock-backend/releases/latest"
