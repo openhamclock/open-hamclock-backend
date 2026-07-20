@@ -65,6 +65,12 @@ my $WWFF_URL = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
 my $OUT      = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta.txt';
 my $TMP      = "$OUT.tmp";
 
+# Separate side file: reference -> 2-letter state/province, kept apart from
+# onta.txt so that file's format/consumers are completely undisturbed. Purely
+# additive -- HamClock can ignore this file entirely and nothing changes.
+my $PARKS_OUT = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta_parks.txt';
+my $PARKS_TMP = "$PARKS_OUT.tmp";
+
 my $POTA_CSV = '/opt/hamclock-backend/cache/all_parks_ext.csv';
 my $SOTA_CSV = '/opt/hamclock-backend/cache/sota_summits.csv';
 my $WWFF_CSV = '/opt/hamclock-backend/cache/wwff_parks.csv';
@@ -111,8 +117,16 @@ sub clean_field {
 
 # ---------------------------------------------------------------------------
 # Load a reference lookup CSV into a hash keyed by reference string.
-# Expects columns: reference, latitude, longitude, grid
+# Required columns: reference, latitude, longitude, grid
+# Optional column (first match wins, case-sensitive to match each source's
+# own header spelling): locationDesc, state, region -- whatever subdivision
+# info the source happens to publish. POTA's all_parks_ext.csv has
+# "locationDesc" (eg "US-ME", or "US-DC,US-MD,US-WV" for multi-state parks).
+# If none of these columns exist in a given CSV, state is simply left blank
+# for every entry from that source -- this is not an error.
 # ---------------------------------------------------------------------------
+my @LOC_COLS = qw(locationDesc state region);
+
 sub load_lookup {
     my ($path) = @_;
     my %park;
@@ -148,6 +162,13 @@ sub load_lookup {
         }
     }
 
+    my ($loc_col) = grep { exists $idx{$_} } @LOC_COLS;
+    if ($loc_col) {
+        print "Using '$loc_col' column for state/region from $path\n";
+    } else {
+        print "No location column found in $path -- state will be blank for this source\n";
+    }
+
     while (my $row = $csv->getline($fh)) {
         my $ref = $row->[$idx{reference}] // next;
         $ref =~ s/^"|"$//g;
@@ -156,6 +177,7 @@ sub load_lookup {
             lat  => ($row->[$idx{latitude}]  // ''),
             lng  => ($row->[$idx{longitude}] // ''),
             grid => ($row->[$idx{grid}]      // ''),
+            loc  => ($loc_col ? ($row->[$idx{$loc_col}] // '') : ''),
         };
     }
 
@@ -242,6 +264,30 @@ sub resolve_location {
 }
 
 # ---------------------------------------------------------------------------
+# Helper: attempt to resolve a 2-letter state/province code for a park/summit
+# reference, from whatever location column load_lookup() found (if any).
+# Raw values look like "US-ME", or "US-DC,US-MD,US-WV" for a multi-state
+# park -- we just take the first entry and its first 2 letters. Returns ''
+# if there's no lookup entry, no location column was available for that
+# source, or the subdivision code isn't at least 2 characters.
+# ---------------------------------------------------------------------------
+sub resolve_state {
+    my ($ref) = @_;
+    return '' unless $ref && exists $park_lookup{$ref};
+    my $loc = $park_lookup{$ref}{loc} // '';
+    return '' unless length $loc;
+
+    my ($first) = split /,/, $loc;                # multi-state: just the first
+    return '' unless $first;
+
+    my $sub = ($first =~ m{-(.+)$}) ? $1 : $first; # drop the "US-" country part
+    $sub =~ s/^\s+|\s+$//g;
+    return '' unless length($sub) >= 2;
+
+    return uc(substr($sub, 0, 2));
+}
+
+# ---------------------------------------------------------------------------
 # Source 1: POTA  (https://api.pota.app/spot)
 # Fields: activator, frequency (kHz), mode, reference, spotTime (ISO8601 UTC)
 # ---------------------------------------------------------------------------
@@ -279,6 +325,8 @@ sub resolve_location {
                 # Skip if HamClock would reject it (no location data)
                 next unless $grid || ($lat != 0 && $lng != 0);
 
+                my $state = resolve_state($park);
+
                 my $key = join('|', $call, $park, $mode, $hz, $org);
 
                 if (!exists $best{$key} || $epoch > $best{$key}{epoch}) {
@@ -292,6 +340,7 @@ sub resolve_location {
                         lng   => $lng,
                         park  => $park,
                         org   => $org,
+                        state => $state,
                     };
                     $counts{pota}++;
                 }
@@ -356,6 +405,8 @@ sub resolve_location {
                 my ($grid, $lat, $lng) = resolve_location($park);
                 next unless $grid || ($lat != 0 && $lng != 0);
 
+                my $state = resolve_state($park);
+
                 my $key = join('|', $call, $park, $mode, $hz, 'SOTA');
 
                 if (!exists $best{$key} || $epoch > $best{$key}{epoch}) {
@@ -369,6 +420,7 @@ sub resolve_location {
                         lng   => $lng,
                         park  => $park,
                         org   => 'SOTA',
+                        state => $state,
                     };
                     $counts{sota}++;
                 }
@@ -452,6 +504,7 @@ sub resolve_location {
                     lng   => $lon,
                     park  => $park,
                     org   => 'WWFF',
+                    state => resolve_state($park),
                 };
                 $counts{wwff}++;
             }
@@ -484,6 +537,27 @@ for my $r (@out) {
 
 close $fh;
 
+# ---------------------------------------------------------------------------
+# Side file: park/summit reference -> 2-letter state/province, for whichever
+# references in this run actually resolved one (POTA today; SOTA/WWFF too,
+# automatically, if their cache CSVs ever gain a matching location column).
+# Deduplicated since multiple spots can share the same reference.
+# ---------------------------------------------------------------------------
+my %park_states;
+for my $r (@out) {
+    next unless length $r->{state};
+    $park_states{$r->{park}} = $r->{state};
+}
+
+open my $pfh, '>', $PARKS_TMP or die "Cannot write temp file $PARKS_TMP: $!\n";
+print $pfh "#park,state\n";
+for my $park (sort keys %park_states) {
+    print $pfh join(',', $park, $park_states{$park}), "\n";
+}
+close $pfh;
+
+move $PARKS_TMP, $PARKS_OUT or die "move failed $PARKS_TMP -> $PARKS_OUT: $!\n";
+
 print "--- Processing Complete ---\n";
 print "POTA records: $counts{pota}\n";
 print "SOTA records: $counts{sota}\n";
@@ -493,3 +567,4 @@ print "WWFF source : $WWFF_URL\n";
 move $TMP, $OUT or die "move failed $TMP -> $OUT: $!\n";
 
 print "Total unique spots written to $OUT: " . scalar(@out) . "\n";
+print "Total park/state entries written to $PARKS_OUT: " . scalar(keys %park_states) . "\n";
