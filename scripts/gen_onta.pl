@@ -64,13 +64,13 @@ my $SOTA_URL = 'https://api2.sota.org.uk/api/spots/-1?filter=all';
 my $WWFF_URL = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
 
 my $OUT      = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta.txt';
-my $TMP      = "/opt/hamclock-backend/tmp/onta.txt.tmp";
+my $TMP      = '/opt/hamclock-backend/tmp/onta.txt.tmp';
 
 # Separate side file: reference -> 2-letter state/province, kept apart from
 # onta.txt so that file's format/consumers are completely undisturbed. Purely
 # additive -- HamClock can ignore this file entirely and nothing changes.
 my $PARKS_OUT = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta_parks.txt';
-my $PARKS_TMP = "$PARKS_OUT.tmp";
+my $PARKS_TMP = '/opt/hamclock-backend/tmp/onta_parks.txt.tmp';
 
 my $POTA_CSV = '/opt/hamclock-backend/cache/all_parks_ext.csv';
 my $SOTA_CSV = '/opt/hamclock-backend/cache/sota_summits.csv';
