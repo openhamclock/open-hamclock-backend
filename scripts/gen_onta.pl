@@ -59,6 +59,7 @@ use File::Copy qw(move);
 my $POTA_URL = 'https://api.pota.app/spot';
 my $SOTA_URL = 'https://api2.sota.org.uk/api/spots/-1?filter=all';
 
+
 # WWFF source: Managed locally by fetch_wwff_cache.pl.
 my $WWFF_URL = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
 
