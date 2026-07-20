@@ -31,24 +31,37 @@
 fetch_cyclones.py -- OHB backend for HamClock tropical cyclone overlay
 
 Fetches active storm data from NOAA NHC (Atlantic/E.Pacific) and JTWC
-(W.Pacific/Indian Ocean) and outputs a plain-text CSV file for HamClock
+(W.Pacific/Indian Ocean) and outputs plain-text CSV files for HamClock
 to consume via openCachedFile().
 
-Output format (one line per forecast point):
-  STORMNAME,BASIN,TYPE,CATEGORY,LAT,LON,WIND_KT,FCST_HOUR,ADVISORY
+Two files are written:
 
-Where:
-  STORMNAME  = storm name e.g. HELENE, or INVEST92L if unnamed
-  BASIN      = AL (Atlantic), EP (E.Pacific), CP (C.Pacific), WP (W.Pacific), IO (Indian)
-  TYPE       = TD|TS|HU|TY|TC|DB|EX  (Tropical Depression/Storm/Hurricane/Typhoon/etc)
-  CATEGORY   = 0-5  (0 = TD or TS, 1-5 = Saffir-Simpson)
-  LAT        = decimal degrees, positive=N negative=S
-  LON        = decimal degrees, positive=E negative=W
-  WIND_KT    = maximum sustained winds in knots
-  FCST_HOUR  = 0=current position, 12,24,36,48,72,96,120 = forecast hours
-  ADVISORY   = advisory number string e.g. "24" or "24A"
+  storms.txt -- UNCHANGED format, one line per forecast point:
+    STORMNAME,BASIN,TYPE,CATEGORY,LAT,LON,WIND_KT,FCST_HOUR,ADVISORY
 
-First line is always a comment with metadata:
+    Where:
+      STORMNAME  = storm name e.g. HELENE, or INVEST92L if unnamed
+      BASIN      = AL (Atlantic), EP (E.Pacific), CP (C.Pacific), WP (W.Pacific), IO (Indian)
+      TYPE       = TD|TS|HU|TY|TC|DB|EX  (Tropical Depression/Storm/Hurricane/Typhoon/etc)
+      CATEGORY   = 0-5  (0 = TD or TS, 1-5 = Saffir-Simpson)
+      LAT        = decimal degrees, positive=N negative=S
+      LON        = decimal degrees, positive=E negative=W
+      WIND_KT    = maximum sustained winds in knots
+      FCST_HOUR  = 0=current position, 12,24,36,48,72,96,120 = forecast hours
+      ADVISORY   = advisory number string e.g. "24" or "24A"
+
+  storm_ids.txt -- companion/sidecar file, OPTIONAL for consumers, one line per storm
+  (not per track point):
+    STORMNAME,BASIN,ATCF_ID
+
+    Where ATCF_ID is the storm's full ATCF identifier, e.g. "AL092026" or "WP062026".
+    A consumer joins this to storms.txt using the (STORMNAME, BASIN) pair, which is exactly
+    the key storms.txt already uses to group a storm's track points. This file is deliberately
+    kept separate from storms.txt -- rather than adding a 10th column there -- so storms.txt's
+    documented 9-field format never changes for any other consumer that may parse it, and this
+    file can be safely ignored by any consumer that doesn't care about the ATCF id.
+
+Both files begin with a comment line with metadata, eg:
   # TROPICAL CYCLONES N storms as of YYYY-MM-DD HH:MM UTC
 
 HamClock uses FCST_HOUR=0 as the current position (drawn as bullseye)
@@ -63,7 +76,7 @@ Run with --storm AL052026 to pull a specific storm's live/archive ATCF data.
 
 Usage:
   Production cron job:
-    ./fetch_cyclones.py                      # writes storms.txt to HamClock web root
+    ./fetch_cyclones.py                      # writes storms.txt + storm_ids.txt to HamClock web root
 
   Command line testing:
     ./fetch_cyclones.py --test               # synthetic test data
@@ -72,6 +85,7 @@ Usage:
 
 Output is always written to:
   /opt/hamclock-backend/htdocs/ham/HamClock/storms/storms.txt
+  /opt/hamclock-backend/htdocs/ham/HamClock/storms/storm_ids.txt
 
 The storms subdirectory is created automatically if it does not exist.
 """
@@ -97,6 +111,7 @@ NHC_CURRENT_STORMS_URL = "https://www.nhc.noaa.gov/CurrentStorms.json"
 
 STORMS_OUTPUT_DIR = "/opt/hamclock-backend/htdocs/ham/HamClock/storms"
 STORMS_OUTPUT_FILE = os.path.join(STORMS_OUTPUT_DIR, "storms.txt")
+STORM_IDS_OUTPUT_FILE = os.path.join(STORMS_OUTPUT_DIR, "storm_ids.txt")
 TMP_DIR = "/opt/hamclock-backend/tmp"
 
 # ATCF best-track and forecast files -- used for live data and testing
@@ -421,7 +436,7 @@ def get_storm_name_from_json(storm_id):
 # JTWC issues for basins NHC does not cover (WP/IO/SH), but NHC mirrors JTWC's
 # ATCF files on its public server. Same ATCF format as NHC, so parse_atcf_line()
 # is reused. We auto-discover which subdir holds the b-decks and guard against
-# HTML error pages being returned in place of data (the failure that silently
+# HTML error pages being returned in place of data (the failure that previously
 # broke the old nrlmry source).
 
 def _is_denied(text):
@@ -583,9 +598,9 @@ def get_jtwc_name(storm_id, btk_text=None):
 
 def format_storm_records(name, basin, records, advisory="0"):
     """
-    Convert list of ATCF records to HamClock CSV output lines.
-    Uses most recent BEST track position as tau=0 (current position)
-    and forecast records as tau>0.
+    Convert list of ATCF records to HamClock CSV output lines. storms.txt format is
+    unchanged -- 9 fields, no ATCF id. Uses most recent BEST track position as tau=0
+    (current position) and forecast records as tau>0.
     """
     lines = []
     for rec in records:
@@ -598,6 +613,11 @@ def format_storm_records(name, basin, records, advisory="0"):
     return lines
 
 
+def format_storm_id_line(name, basin, atcf_id):
+    """One line of storm_ids.txt: NAME,BASIN,ATCF_ID."""
+    return f"{name},{basin},{atcf_id}"
+
+
 # ---------------------------------------------------------------------------
 # Test data -- synthetic storms for development/testing
 # ---------------------------------------------------------------------------
@@ -605,7 +625,7 @@ def format_storm_records(name, basin, records, advisory="0"):
 TEST_STORMS = [
     # Simulated Hurricane HELENE (Atlantic Cat 4, making Florida landfall)
     {
-        'name': 'HELENE', 'basin': 'AL', 'advisory': '24',
+        'name': 'HELENE', 'basin': 'AL', 'advisory': '24', 'atcf_id': 'AL092026',
         'records': [
             # current position
             {'lat': 25.3, 'lon': -80.1, 'vmax': 120, 'tau': 0,   'type': 'HU'},
@@ -621,7 +641,7 @@ TEST_STORMS = [
     },
     # Simulated Typhoon KONG-REY (W.Pacific Cat 3)
     {
-        'name': 'KONG-REY', 'basin': 'WP', 'advisory': '12',
+        'name': 'KONG-REY', 'basin': 'WP', 'advisory': '12', 'atcf_id': 'WP062026',
         'records': [
             {'lat': 18.4, 'lon': 135.2, 'vmax': 100, 'tau': 0,   'type': 'TY'},
             {'lat': 19.8, 'lon': 132.5, 'vmax': 105, 'tau': 12,  'type': 'TY'},
@@ -636,14 +656,23 @@ TEST_STORMS = [
 
 
 def get_test_output():
-    """Generate output from synthetic test data."""
+    """
+    Generate output from synthetic test data.
+    Returns (storm_lines, id_lines) -- storm_lines for storms.txt (unchanged format),
+    id_lines for storm_ids.txt.
+    """
     lines = []
+    id_lines = []
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
     lines.append(f"# TROPICAL CYCLONES {len(TEST_STORMS)} storms (TEST DATA) as of {now} UTC")
+    id_lines.append(f"# STORM ATCF IDS {len(TEST_STORMS)} storms (TEST DATA) as of {now} UTC")
     for storm in TEST_STORMS:
-        name   = storm['name']
-        basin  = storm['basin']
-        adv    = storm['advisory']
+        name    = storm['name']
+        basin   = storm['basin']
+        adv     = storm['advisory']
+        atcf_id = storm.get('atcf_id', '')
+        if atcf_id:
+            id_lines.append(format_storm_id_line(name, basin, atcf_id))
         for rec in storm['records']:
             stype, cat = wind_to_category(rec['vmax'], basin)
             lines.append(
@@ -651,7 +680,7 @@ def get_test_output():
                 f"{rec['lat']:.1f},{rec['lon']:.1f},"
                 f"{rec['vmax']},{rec['tau']},{adv}"
             )
-    return lines
+    return lines, id_lines
 
 
 # ---------------------------------------------------------------------------
@@ -661,12 +690,13 @@ def get_test_output():
 def get_archive_output(year):
     """
     Pull ATCF best-track archive for a given year.
-    Returns output lines showing all storms from that season.
+    Returns (storm_lines, id_lines) showing all storms from that season.
     """
     import gzip
     import io
 
     lines = []
+    id_lines = []
     # Atlantic archive index: all storms named bal{nn}{year}.dat.gz
     # We try al01 through al30
     storms_found = []
@@ -704,6 +734,7 @@ def get_archive_output(year):
 
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
     lines.append(f"# TROPICAL CYCLONES {len(storms_found)} storms ({year} archive) as of {now} UTC")
+    id_lines.append(f"# STORM ATCF IDS {len(storms_found)} storms ({year} archive) as of {now} UTC")
 
     # Build name lookup
     print(f"# Looking up storm names from HURDAT2...", file=sys.stderr)
@@ -715,6 +746,7 @@ def get_archive_output(year):
         basin = storm_id[:2]
         name = name_map.get(storm_id, storm_id)   # use name or fall back to ID
         print(f"# {storm_id} = {name}", file=sys.stderr)
+        id_lines.append(format_storm_id_line(name, basin, storm_id))
 
         # For archive/display purposes, output every 6th track point
         for i, rec in enumerate(records):
@@ -726,7 +758,7 @@ def get_archive_output(year):
                 f"{rec['lat']:.1f},{rec['lon']:.1f},"
                 f"{rec['vmax']},0,ARCHIVE"
             )
-    return lines
+    return lines, id_lines
 
 
 # ---------------------------------------------------------------------------
@@ -734,8 +766,13 @@ def get_archive_output(year):
 # ---------------------------------------------------------------------------
 
 def get_live_output():
-    """Fetch all currently active NHC storms and return output lines."""
+    """
+    Fetch all currently active NHC + JTWC storms.
+    Returns (storm_lines, id_lines) -- storm_lines for storms.txt (unchanged format),
+    id_lines for storm_ids.txt (NAME,BASIN,ATCF_ID), one per storm.
+    """
     lines = []
+    id_lines = []
     storm_ids = get_active_storm_ids_nhc()
 
     all_storm_lines = []
@@ -757,7 +794,10 @@ def get_live_output():
         advisory = current['dtg']  # use DTG as advisory reference
         stype, cat = wind_to_category(current['vmax'], basin)
 
-        # Emit current position as tau=0
+        # record the (name, basin) -> ATCF id mapping once per storm, for storm_ids.txt
+        id_lines.append(format_storm_id_line(name, basin, storm_id))
+
+        # Emit current position as tau=0 -- storms.txt format is unchanged (9 fields)
         all_storm_lines.append(
             f"{name},{basin},{stype},{cat},"
             f"{current['lat']:.1f},{current['lon']:.1f},"
@@ -796,6 +836,9 @@ def get_live_output():
         name = get_jtwc_name(storm_id)
         advisory = current['dtg']
         stype, cat = wind_to_category(current['vmax'], basin)
+
+        id_lines.append(format_storm_id_line(name, basin, storm_id))
+
         all_storm_lines.append(
             f"{name},{basin},{stype},{cat},"
             f"{current['lat']:.1f},{current['lon']:.1f},"
@@ -814,15 +857,16 @@ def get_live_output():
     n = len(storm_ids) + jtwc_active
     lines.append(f"# TROPICAL CYCLONES {n} storms as of {now} UTC")
     lines.extend(all_storm_lines)
-    return lines
+    id_lines.insert(0, f"# STORM ATCF IDS {len(id_lines)} storms as of {now} UTC")
+    return lines, id_lines
 
 
 # ---------------------------------------------------------------------------
 # Output helper
 # ---------------------------------------------------------------------------
 
-def write_storms_file(lines, outfile=STORMS_OUTPUT_FILE):
-    """Create the storms output directory and atomically write storms.txt."""
+def write_text_file(lines, outfile):
+    """Create the output directory and atomically write a text file of lines."""
     body = "\n".join(lines) + "\n"
 
     outdir = os.path.dirname(outfile)
@@ -843,6 +887,11 @@ def write_storms_file(lines, outfile=STORMS_OUTPUT_FILE):
     print(f"Written {len(lines)} lines to {outfile}", file=sys.stderr)
 
 
+def write_storms_file(lines, outfile=STORMS_OUTPUT_FILE):
+    """Kept for backward compatibility -- delegates to write_text_file()."""
+    write_text_file(lines, outfile)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -858,10 +907,12 @@ def main():
                         help='Fetch specific storm ATCF e.g. AL052024')
     args = parser.parse_args()
 
+    id_lines = []
+
     if args.test:
-        lines = get_test_output()
+        lines, id_lines = get_test_output()
     elif args.archive:
-        lines = get_archive_output(args.archive)
+        lines, id_lines = get_archive_output(args.archive)
     elif args.storm:
         # Single storm mode -- route JTWC basins to the JTWC fetchers
         storm_id = args.storm.upper()
@@ -885,6 +936,10 @@ def main():
                 f"{current['lat']:.1f},{current['lon']:.1f},"
                 f"{current['vmax']},0,{advisory}"
             )
+            id_lines = [
+                f"# STORM ATCF IDS 1 storm ({storm_id}) as of {now} UTC",
+                format_storm_id_line(disp_name, basin, storm_id),
+            ]
         for rec in fst:
             stype_f, cat_f = wind_to_category(rec['vmax'], basin)
             lines.append(
@@ -894,9 +949,11 @@ def main():
             )
     else:
         # Default: live data
-        lines = get_live_output()
+        lines, id_lines = get_live_output()
 
-    write_storms_file(lines)
+    write_text_file(lines, STORMS_OUTPUT_FILE)
+    if id_lines:
+        write_text_file(id_lines, STORM_IDS_OUTPUT_FILE)
 
 
 if __name__ == '__main__':
