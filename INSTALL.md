@@ -25,7 +25,7 @@ Because of recent changes to depend on other docker containers, we recommend the
 
 ```bash
    # Confirmed working in aws t3-micro Ubuntu 24.x LTS instance
-   wget -O install_ohb.sh https://raw.githubusercontent.com/komacke/open-hamclock-backend/refs/heads/main/aws/install_ohb.sh
+   wget -O install_ohb.sh https://raw.githubusercontent.com/openhamclock/open-hamclock-backend/refs/heads/main/aws/install_ohb.sh
    chmod +x install_ohb.sh
    sudo ./install_ohb.sh
 ```

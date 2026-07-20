@@ -63,7 +63,7 @@ WRITE_INTERVAL       = 30                # write cache / log heartbeat every N s
 SILENCE_WARN_SECS    = WRITE_INTERVAL * 3
 RECONNECT_MIN_DELAY  = 5
 RECONNECT_MAX_DELAY  = 60
-CACHE_FILE           = '/opt/hamclock-backend/tmp/lightning_global.json'
+CACHE_FILE           = '/opt/hamclock-backend/cache/lightning_global.json'
 LOG_FILE             = '/opt/hamclock-backend/logs/blitzortung.log'
 # --------------------------------------------------------------------------
 

@@ -60,7 +60,7 @@ All we ask is if you fork OHB that you clearly list what parts of OHB you re-use
 ## 🤝 Contributing
 
 Bug reports and pull requests are welcome on GitHub at
-<https://github.com/komacke/open-hamclock-backend/issues>
+<https://github.com/openhamclock/open-hamclock-backend/issues>
 
 ## 📄 Disclaimer 👉 [Disclaimer](./DISCLAIMER.md)
 
@@ -73,5 +73,5 @@ Bug reports and pull requests are welcome on GitHub at
 * Many appliances available for sale, with HamClock pre-installed and automatically maintained
 * Open Hamclock Backend project
     * <https://ohb.works/> - main site
-    * <https://github.com/komacke/open-hamclock-backend> - source
+    * <https://github.com/openhamclock/open-hamclock-backend> - source
 * [hamclock.com](https://hamclock.com) backend

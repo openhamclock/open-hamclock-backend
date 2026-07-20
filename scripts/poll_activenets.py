@@ -84,7 +84,7 @@ CLIENT_NAME   = "HamClock-OHB"
 SERVER_NAME   = ""              # "" = all servers, or e.g. "NETLOGGER"
 OUTPUT_PATH   = "/opt/hamclock-backend/htdocs/ham/HamClock/activenets/activenets.txt"
 HTTP_TIMEOUT  = 20              # seconds
-USER_AGENT    = "HamClock-OHB-ActiveNets/1.1 (+https://github.com/komacke/open-hamclock-backend)"
+USER_AGENT    = "HamClock-OHB-ActiveNets/1.1 (+https://github.com/openhamclock/open-hamclock-backend)"
 
 WRITE_TIMESTAMP_COMMENT = True  # first line: "# updated <UTC> ..."
 WRITE_COLUMN_HEADER     = True  # second line: the CSV column names

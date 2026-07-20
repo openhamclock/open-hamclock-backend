@@ -80,7 +80,7 @@ REQUEST_TIMEOUT = 20
 HEADERS = {
     'User-Agent': (
         'OHB-DXPeds/2.0 '
-        '(+https://github.com/komacke/open-hamclock-backend)'
+        '(+https://github.com/openhamclock/open-hamclock-backend)'
     )
 }
 

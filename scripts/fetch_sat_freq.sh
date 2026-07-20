@@ -58,7 +58,7 @@ FREQ_OUT="${ESATS_FREQ_OUT:-/opt/hamclock-backend/htdocs/ham/HamClock/esats/esat
 SATNOGS_API="${SATNOGS_API:-https://db.satnogs.org/api/transmitters/}"
 HTTP_TIMEOUT="${HTTP_TIMEOUT:-20}"     # seconds per request
 REQ_SLEEP="${REQ_SLEEP:-0.5}"          # polite delay between API calls, seconds
-USER_AGENT="${USER_AGENT:-OHB-fetch_sat_freq/1.0 (+https://github.com/komacke/open-hamclock-backend)}"
+USER_AGENT="${USER_AGENT:-OHB-fetch_sat_freq/1.0 (+https://github.com/openhamclock/open-hamclock-backend)}"
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "[$(ts)] $*" >&2; }

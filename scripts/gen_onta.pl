@@ -13,7 +13,7 @@
 #  gen_onta.pl -- POTA / SOTA / WWFF on-the-air spot aggregator
 #
 #  Part of the OHB project:
-#  https://github.com/komacke/open-hamclock-backend/tree/main
+#  https://github.com/openhamclock/open-hamclock-backend/tree/main
 #
 #  Aggregates spots from POTA, SOTA, and WWFF. This script deduplicates
 #  activations, resolves location data from cached reference CSVs, and
@@ -242,7 +242,7 @@ my %park_lookup = (%sota_lookup, %wwff_lookup, %pota_lookup);
 
 my $ua = LWP::UserAgent->new(
     timeout => 10,
-    agent   => 'OHB/1.1 (+https://github.com/komacke/open-hamclock-backend)',
+    agent   => 'OHB/1.1 (+https://github.com/openhamclock/open-hamclock-backend)',
 );
 
 my $now = time();
