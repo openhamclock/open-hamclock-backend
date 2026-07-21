@@ -88,6 +88,15 @@ my %ALIAS = (
     'ISS_[FM]'          => { tle => 'ISS (ZARYA)',             out => 'ISS'        },
     'ISS_[SSTV]'        => { tle => 'ISS (ZARYA)',             out => 'ISS'        },
 
+    # --- Tiangong / CSS (Chinese Space Station) — NORAD 48274 ---
+    # Celestrak carries the core module under "CSS (TIANHE-1)"; the station as a
+    # whole is commonly called Tiangong, so both keys map to the same TLE.
+    'TIANGONG'          => { tle => 'CSS (TIANHE)',          out => 'TIANGONG'   },
+    'TIANGONG_[FM]'     => { tle => 'CSS (TIANHE)',          out => 'TIANGONG'   },
+    'CSS'               => { tle => 'CSS (TIANHE)',          out => 'TIANGONG'   },
+    'CSS_[FM]'          => { tle => 'CSS (TIANHE)',          out => 'TIANGONG'   },
+    'TIANHE-1'          => { tle => 'CSS (TIANHE)',          out => 'TIANGONG'   },
+
     # --- Russian SSTV / FM satellites ---
     'QMR-KWT-2 (RS95S)' => { tle => 'QMR-KWT-2 (RS95S)',      out => 'RS95S'      },
     'QMR-KWT-2_(RS95S)' => { tle => 'QMR-KWT-2 (RS95S)',      out => 'RS95S'      },
