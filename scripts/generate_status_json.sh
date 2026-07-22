@@ -62,6 +62,7 @@ THRESH_LAUNCHES="${THRESH_LAUNCHES:-1200 2400 3600}"
 THRESH_WX_MAP="${THRESH_WX_MAP:-3600 7200 14400}"
 THRESH_SOLAR_HISTORY="${THRESH_SOLAR_HISTORY:-2592000 5184000 7776000}" # 30d 60d 90d
 THRESH_DEFAULT="${THRESH_DEFAULT:-3600 7200 14400}"
+IGNORE_FILES="${IGNORE_FILES:-"ONTA/spot.pl"}"
 
 if [ -r "$STATUS_SETTINGS_CONF" ]; then
     source "$STATUS_SETTINGS_CONF"
@@ -204,6 +205,26 @@ TRACK_DATA_FRESH=0; TRACK_DATA_RECENT=0; TRACK_DATA_AGED=0; TRACK_DATA_STALE=0; 
 TRACK_SDO_FRESH=0;  TRACK_SDO_RECENT=0;  TRACK_SDO_AGED=0;  TRACK_SDO_STALE=0;  TRACK_SDO_STATIC=0
 TRACK_MAP_FRESH=0;  TRACK_MAP_RECENT=0;  TRACK_MAP_AGED=0;  TRACK_MAP_STALE=0;  TRACK_MAP_STATIC=0
 
+should_ignore() {
+    local filepath="$1"
+    local label="$2"
+    local filename
+    filename=$(basename "$filepath")
+
+    if [ "$filename" = "ignore" ]; then
+        return 0
+    fi
+
+    local item
+    for item in $IGNORE_FILES; do
+        if [[ "$filename" == $item ]] || [[ "$label/$filename" == $item ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 calculate_stats() {
     local dir="$1"
     local label="$2"
@@ -234,7 +255,7 @@ calculate_stats() {
     [ ! -d "$dir" ] && return
     while IFS= read -r -d '' filepath; do
         local filename=$(basename "$filepath")
-        [ "$filename" = "ignore" ] && continue
+        should_ignore "$filepath" "$label" && continue
         _t=$(( _t + 1 ))
 
         local status_text
@@ -396,7 +417,7 @@ emit_file_row() {
     local label="$2"
     local filename
     filename=$(basename "$filepath")
-    [ "$filename" = "ignore" ] && return
+    should_ignore "$filepath" "$label" && return
 
     local mod_epoch mod_human age_sec status_class status_text age_str class_text
 
@@ -565,7 +586,7 @@ build_json_entries() {
     while IFS= read -r -d '' filepath; do
         local filename
         filename=$(basename "$filepath")
-        [ "$filename" = "ignore" ] && continue
+        should_ignore "$filepath" "$label" && continue
 
         local mod_epoch mod_human age_sec status_text
 
