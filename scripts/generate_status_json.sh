@@ -236,6 +236,7 @@ calculate_stats() {
         if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
             for rfname in "${!REMOTE_FILE_STATUS[@]}"; do
                 [[ "${REMOTE_FILE_CAT[$rfname]}" == "map" ]] || continue
+                should_ignore "$dir/$rfname" "$label" && continue
                 _t=$(( _t + 1 ))
                 case "${REMOTE_FILE_STATUS[$rfname]}" in
                     FRESH)  _f=$(( _f + 1 )) ;;
@@ -580,6 +581,38 @@ build_json_entries() {
     local dir="$1"
     local label="$2"
     local -n _first_entry="$3"
+
+    # Special handling for Maps Proxy in JSON
+    if [[ "$label" == "map" && -n "$REMOTE_STATUS_HOST" ]]; then
+        if [ "$REMOTE_STATUS_SYNCED" -eq 1 ]; then
+            for rfname in $(echo "${!REMOTE_FILE_STATUS[@]}" | tr ' ' '\n' | sort); do
+                [[ "${REMOTE_FILE_CAT[$rfname]}" == "map" ]] || continue
+                local filepath="$dir/$rfname"
+                should_ignore "$filepath" "$label" && continue
+
+                local mod_human="${REMOTE_FILE_MOD[$rfname]:-unknown}"
+                local mod_epoch=$(date -u -d "$mod_human" +%s 2>/dev/null || echo 0)
+                local age_sec=$(( NOW_EPOCH - mod_epoch ))
+                age_sec=$(( age_sec < 0 ? 0 : age_sec ))
+                local status_text="${REMOTE_FILE_STATUS[$rfname]:-STALE}"
+
+                local safe_name safe_label
+                safe_name=$(printf '%s' "$rfname" | sed 's/\\/\\\\/g; s/"/\\"/g')
+                safe_label=$(printf '%s' "$label"   | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+                [ "$_first_entry" -eq 0 ] && printf ',\n'
+                _first_entry=0
+                printf '    {\n'
+                printf '      "filename": "%s",\n'      "$safe_name"
+                printf '      "category": "%s",\n'      "$safe_label"
+                printf '      "modified_utc": "%s",\n'  "$mod_human"
+                printf '      "age_seconds": %d,\n'     "$age_sec"
+                printf '      "status": "%s"\n'         "$status_text"
+                printf '    }'
+            done
+        fi
+        return
+    fi
 
     [ ! -d "$dir" ] && return
 
