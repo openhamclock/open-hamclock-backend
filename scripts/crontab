@@ -47,6 +47,7 @@ LANG=C
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/flux_simple.py
 */15 * * * *   $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/fetch_launches.py
 1-57/4 * * * * $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/xray_simple.py
+1-57/4 * * * * $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/fetch_proton.py
 
 # the json updates "estimated" multiple times between its regular 3-hour updates. Also, the 3-hour update isn't
 # an exact time after the 3rd hour. So for the 3 hour updates, we'll do 10 and 40 (AI says it should be ready
