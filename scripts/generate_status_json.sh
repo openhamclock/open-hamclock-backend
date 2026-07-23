@@ -45,6 +45,7 @@ STATUS_SETTINGS_CONF="${SCRIPT_DIR}/status_settings.conf"
 THRESH_BZ_ONTA_WX="${THRESH_BZ_ONTA_WX:-300 600 1800}"
 THRESH_DRAP_WIND="${THRESH_DRAP_WIND:-600 1200 3600}"
 THRESH_XRAY="${THRESH_XRAY:-300 600 1800}"
+THRESH_PROTON="${THRESH_PROTON:-300 600 1800}"
 THRESH_AURORA="${THRESH_AURORA:-1800 3600 7200}"
 THRESH_SDO_SPACE="${THRESH_SDO_SPACE:-3600 7200 14400}"
 THRESH_SSN="${THRESH_SSN:-7200 14400 28800}" # 2h 4h 8h
@@ -103,6 +104,7 @@ DATA_SUBDIRS=(
     esats
     geomag
     launches
+    proton
     solar-flux
     solar-wind
     ssn
@@ -163,6 +165,7 @@ get_thresholds() {
         Bz|ONTA|worldwx)                       echo "$THRESH_BZ_ONTA_WX" ;;
         drap|solar-wind)                       echo "$THRESH_DRAP_WIND"  ;;
         xray)                                  echo "$THRESH_XRAY"       ;;
+        proton)                                echo "$THRESH_PROTON"     ;;
         aurora)                                echo "$THRESH_AURORA"     ;;
         NOAASpaceWX|dst|geomag|solar-flux|SDO) echo "$THRESH_SDO_SPACE"  ;;
         ssn)                                   echo "$THRESH_SSN"        ;;
@@ -1105,7 +1108,7 @@ $(build_dynamic_rows)
   <div class="section-header">
     <div class="section-icon"></div>
     <span class="section-title">Data Products ($DATA_TOTAL)</span>
-    <span class="section-path">${DATA_DIR}/{Bz,NOAASpaceWX,ONTA,aurora,contests,cty,drap,dst,dxpeds,esats,geomag,solar-flux,solar-wind,ssn,worldwx,xray}</span>
+    <span class="section-path">${DATA_DIR}/{Bz,NOAASpaceWX,ONTA,activenets,aurora,contests,cty,drap,dst,dxpeds,esats,geomag,launches,proton,solar-flux,solar-wind,ssn,worldwx,xray}</span>
   </div>
   <table>
     <thead>

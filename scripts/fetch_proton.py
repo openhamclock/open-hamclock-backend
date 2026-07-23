@@ -47,7 +47,7 @@ import requests
 
 URL     = "https://services.swpc.noaa.gov/json/goes/primary/integral-protons-3-day.json"
 OUTFILE = Path("/opt/hamclock-backend/htdocs/ham/HamClock/proton/protons.txt")
-TMP_DIR = Path("/opt/hamclock-backend/tmp")
+TMP_DIR = Path("/opt/hamclock-backend/htdocs/tmp")
 
 TIMEOUT = (10, 60)
 HEADERS = {"User-Agent": "OHB fetch_proton.py"}
