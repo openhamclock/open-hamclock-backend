@@ -59,22 +59,25 @@ use JSON qw(decode_json);
 use Time::Local;
 use Text::CSV_XS;
 use File::Copy qw(move);
+use Fcntl qw(:flock);
+use Time::HiRes qw(sleep time);
 
 my $POTA_URL = 'https://api.pota.app/spot';
 
 # WWFF source: Managed locally by fetch_wwff_cache.pl.
 my $WWFF_URL = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/wwff_spots.json';
 
-my $OUT      = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta.txt';
-my $TMP      = '/opt/hamclock-backend/htdocs/tmp/onta.txt.tmp';
+my $OUT        = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta.txt';
+my $TMP        = "/opt/hamclock-backend/htdocs/tmp/onta.txt.$$.tmp";
 
 # Shared side file: reference -> 2-letter state/province/country, kept
 # apart from onta.txt so that file's format/consumers are completely
 # undisturbed. Purely additive -- HamClock can ignore this file entirely
 # and nothing changes. Also written to by gen_xonta.pl (SOTA) -- see the
 # onta_parks.txt NOTE above and merge_park_states() below.
-my $PARKS_OUT = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta_parks.txt';
-my $PARKS_TMP = '/opt/hamclock-backend/htdocs/tmp/onta_parks.txt.tmp';
+my $PARKS_OUT  = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta_parks.txt';
+my $PARKS_TMP  = "/opt/hamclock-backend/htdocs/tmp/onta_parks.txt.$$.tmp";
+my $PARKS_LOCK = '/opt/hamclock-backend/htdocs/tmp/onta_parks.lock';
 
 my $POTA_CSV = '/opt/hamclock-backend/cache/all_parks_ext.csv';
 my $WWFF_CSV = '/opt/hamclock-backend/cache/wwff_parks.csv';
@@ -842,8 +845,8 @@ close $fh;
 
 # ---------------------------------------------------------------------------
 # Shared side file: park reference -> 2-letter state/province/country.
-# Merged with gen_xonta.pl's SOTA contribution rather than overwritten --
-# see merge_park_states() and the onta_parks.txt NOTE at the top.
+# Merged with gen_xonta.pl's SOTA contribution under a file lock with timeout
+# rather than overwritten -- see merge_park_states() and the onta_parks.txt NOTE.
 # ---------------------------------------------------------------------------
 my %park_states;
 for my $r (@out) {
@@ -851,16 +854,43 @@ for my $r (@out) {
     $park_states{$r->{park}} = $r->{state};
 }
 
-my %merged = merge_park_states($PARKS_OUT, \%park_states);
+my $lock_timeout = 10;
+my $lock_start   = time();
+my $locked       = 0;
+open my $lock_fh, '>>', $PARKS_LOCK or die "Cannot open lock file $PARKS_LOCK: $!\n";
 
-open my $pfh, '>', $PARKS_TMP or die "Cannot write temp file $PARKS_TMP: $!\n";
-print $pfh "#park,state\n";
-for my $park (sort keys %merged) {
-    print $pfh join(',', $park, $merged{$park}), "\n";
+while ((time() - $lock_start) < $lock_timeout) {
+    if (flock($lock_fh, LOCK_EX | LOCK_NB)) {
+        $locked = 1;
+        last;
+    }
+    sleep(0.1);
 }
-close $pfh;
 
-move $PARKS_TMP, $PARKS_OUT or die "move failed $PARKS_TMP -> $PARKS_OUT: $!\n";
+die "Timed out after ${lock_timeout}s waiting for lock on $PARKS_LOCK\n" unless $locked;
+
+my %merged;
+eval {
+    %merged = merge_park_states($PARKS_OUT, \%park_states);
+
+    open my $pfh, '>', $PARKS_TMP or die "Cannot write temp file $PARKS_TMP: $!\n";
+    print $pfh "#park,state\n";
+    for my $park (sort keys %merged) {
+        print $pfh join(',', $park, $merged{$park}), "\n";
+    }
+    close $pfh;
+
+    move $PARKS_TMP, $PARKS_OUT or die "move failed $PARKS_TMP -> $PARKS_OUT: $!\n";
+};
+my $err = $@;
+
+flock($lock_fh, LOCK_UN);
+close $lock_fh;
+
+if ($err) {
+    unlink $PARKS_TMP if -e $PARKS_TMP;
+    die $err;
+}
 
 print "--- Processing Complete ---\n";
 print "POTA records: $counts{pota}\n";

@@ -61,6 +61,8 @@ use JSON qw(decode_json);
 use URI;
 use Text::CSV_XS;
 use File::Copy qw(move);
+use Fcntl qw(:flock);
+use Time::HiRes qw(sleep time);
 
 # Spothole API v2. See https://spothole.app/apidocs for schema (JS-rendered
 # page -- easier in practice to just sample the live API, see header above).
@@ -80,14 +82,15 @@ my %SOURCE_FALLBACK = (
     GMA => 'GMA',
 );
 
-my $OUT = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/xonta_spots.txt';
-my $TMP = '/opt/hamclock-backend/htdocs/tmp/xonta_spots.txt.tmp';
+my $OUT        = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/xonta_spots.txt';
+my $TMP        = "/opt/hamclock-backend/htdocs/tmp/xonta_spots.txt.$$.tmp";
 
 # Shared side file with gen_onta.pl -- SOTA park->state entries are merged
 # into the SAME onta_parks.txt gen_onta.pl writes for POTA/WWFF, not a
 # separate file. See the onta_parks.txt NOTE in the header.
-my $PARKS_OUT = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta_parks.txt';
-my $PARKS_TMP = '/opt/hamclock-backend/htdocs/tmp/onta_parks.txt.tmp';
+my $PARKS_OUT  = '/opt/hamclock-backend/htdocs/ham/HamClock/ONTA/onta_parks.txt';
+my $PARKS_TMP  = "/opt/hamclock-backend/htdocs/tmp/onta_parks.txt.$$.tmp";
+my $PARKS_LOCK = '/opt/hamclock-backend/htdocs/tmp/onta_parks.lock';
 
 # ---------------------------------------------------------------------------
 # Static SOTA summit reference data -- see the big SOTA comment in the
@@ -1067,6 +1070,7 @@ move $TMP, $OUT or die "move failed $TMP -> $OUT: $!\n";
 
 # ---------------------------------------------------------------------------
 # Shared side file: SOTA park reference -> 2-letter state/province/country.
+# Merged with gen_onta.pl's contributions under a file lock with timeout.
 # ---------------------------------------------------------------------------
 my %new_states;
 for my $r (@out) {
@@ -1074,16 +1078,43 @@ for my $r (@out) {
     $new_states{$r->{ref}} = $r->{state};
 }
 
-my %merged = merge_park_states($PARKS_OUT, \%new_states);
+my $lock_timeout = 10;
+my $lock_start   = time();
+my $locked       = 0;
+open my $lock_fh, '>>', $PARKS_LOCK or die "Cannot open lock file $PARKS_LOCK: $!\n";
 
-open my $pfh, '>', $PARKS_TMP or die "Cannot write temp file $PARKS_TMP: $!\n";
-print $pfh "#park,state\n";
-for my $park (sort keys %merged) {
-    print $pfh join(',', $park, $merged{$park}), "\n";
+while ((time() - $lock_start) < $lock_timeout) {
+    if (flock($lock_fh, LOCK_EX | LOCK_NB)) {
+        $locked = 1;
+        last;
+    }
+    sleep(0.1);
 }
-close $pfh;
 
-move $PARKS_TMP, $PARKS_OUT or die "move failed $PARKS_TMP -> $PARKS_OUT: $!\n";
+die "Timed out after ${lock_timeout}s waiting for lock on $PARKS_LOCK\n" unless $locked;
+
+my %merged;
+eval {
+    %merged = merge_park_states($PARKS_OUT, \%new_states);
+
+    open my $pfh, '>', $PARKS_TMP or die "Cannot write temp file $PARKS_TMP: $!\n";
+    print $pfh "#park,state\n";
+    for my $park (sort keys %merged) {
+        print $pfh join(',', $park, $merged{$park}), "\n";
+    }
+    close $pfh;
+
+    move $PARKS_TMP, $PARKS_OUT or die "move failed $PARKS_TMP -> $PARKS_OUT: $!\n";
+};
+my $err = $@;
+
+flock($lock_fh, LOCK_UN);
+close $lock_fh;
+
+if ($err) {
+    unlink $PARKS_TMP if -e $PARKS_TMP;
+    die $err;
+}
 
 print "--- Processing Complete ---\n";
 for my $org (@TARGET_ORGS) {
