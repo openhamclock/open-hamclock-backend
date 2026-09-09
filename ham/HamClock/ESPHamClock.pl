@@ -102,11 +102,18 @@ my $full_path = "$cache_dir/$target_file";
 if ($target_file ne "" && -f $full_path) {
     my $filesize = -s $full_path;
 
-    print $q->header(
-        -type           => $content_type,
-        -attachment     => $target_file,
+    my %headers = (
+        -type => $content_type,
+        -charset => "",
         -content_length => $filesize,
     );
+    if ($content_type eq 'application/pdf') {
+        $headers{'-disposition'} = "inline; filename=\"$target_file\"";
+    } else {
+        $headers{'-attachment'} = $target_file;
+    }
+
+    print $q->header(%headers);
 
     open(my $fh, '<', $full_path) or die "Cannot open file: $!";
     binmode $fh;
