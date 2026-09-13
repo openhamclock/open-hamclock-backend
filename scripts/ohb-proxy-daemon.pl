@@ -206,13 +206,16 @@ sub proxy_request {
     my $aborted = 0;
 
     # Detect downstream client disconnect
-    $c->tx->on(finish => sub {
-        return if $aborted;
-        $aborted = 1;
-        if (my $conn = $tx->connection) {
-            $ua->ioloop->remove($conn);
-        }
-    });
+    my $finish_cb;
+    if (my $client_tx = $c->tx) {
+        $finish_cb = $client_tx->on(finish => sub {
+            return if $aborted;
+            $aborted = 1;
+            if (my $conn = $tx->connection) {
+                $ua->ioloop->remove($conn);
+            }
+        });
+    }
 
     # Stream body from upstream response
     $tx->res->content->unsubscribe('read')->on(read => sub {
@@ -250,8 +253,10 @@ sub proxy_request {
         # request's object graph per hit and the daemon's RSS climbs until OOM.
         # Dropping 'finish' also avoids a spurious upstream-connection close on the
         # normal-completion path, which would otherwise defeat keep-alive pooling.
-        $tx->res->content->unsubscribe('read');
-        $c->tx->unsubscribe('finish');
+        $tx->res->content->unsubscribe('read') if $tx && $tx->res && $tx->res->content;
+        if (my $client_tx = $c->tx) {
+            $finish_cb ? $client_tx->unsubscribe(finish => $finish_cb) : $client_tx->unsubscribe('finish');
+        }
         return if $aborted;
         my $err = $tx->error;
         if ($err) {
