@@ -18,7 +18,7 @@
 # at release time, this value is set to the tagged release
 OHB_MANAGER_VERSION=edge
 # tags to use
-DEFAULT_VOACAP_SERVICE_TAG=1.19
+DEFAULT_VOACAP_SERVICE_TAG=1.20
 DEFAULT_PSKR_MQTT_CACHE_TAG=1.19
 DEFAULT_WSPR_LIVE_CACHE_TAG=1.4
 
