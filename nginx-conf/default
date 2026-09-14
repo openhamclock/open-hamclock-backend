@@ -1,5 +1,8 @@
-# Rate limit zone for weather endpoint to respect OpenWeatherMap API limits
-limit_req_zone $binary_remote_addr zone=wx_limit:10m rate=50r/m;
+# Rate limit zones for weather endpoint to respect OpenWeatherMap API limits
+# 1. Global ceiling across all clients combined (50 requests/min to protect OWM upstream API)
+limit_req_zone "global_wx" zone=wx_global:1m rate=50r/m;
+# 2. Per-client limit (10 requests/min per IP) to prevent any single client from monopolizing quota
+limit_req_zone $binary_remote_addr zone=wx_per_ip:10m rate=10r/m;
 
 server {
     listen 80 default_server;
@@ -25,9 +28,10 @@ server {
     client_body_buffer_size 2m;
     client_body_timeout 60s;
 
-    # Rate limit /ham/HamClock/wx.pl to 50 requests per minute
+    # Rate limit /ham/HamClock/wx.pl: fair-share per client and global safety ceiling
     location = /ham/HamClock/wx.pl {
-        limit_req zone=wx_limit burst=5 nodelay;
+        limit_req zone=wx_per_ip burst=3 nodelay;
+        limit_req zone=wx_global burst=5 nodelay;
         limit_req_status 429;
         error_page 429 = @wx_rate_limited;
 
