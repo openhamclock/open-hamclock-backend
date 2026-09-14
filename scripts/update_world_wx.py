@@ -16,30 +16,25 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-update_world_wx.py — Fetch world weather via OpenWeatherMap and write wx.txt
+update_world_wx.py — Fetch world weather via Open-Meteo and write wx.txt
 for HamClock in the exact format produced by the original update_world_wx.pl.
+
+Uses batched multi-coordinate requests with gentle rotation to keep
+world map weather data fresh without exhausting API rate limits.
 
 Output grid: lat -90..90 step 4, lon -180..180 step 5 (46×73 = 3,358 points).
 Fetch order: cities from cities.txt (snapped to grid) first, then remaining
 grid points — so named cities always have the freshest data.
 
-Usage:
-    OPEN_WEATHER_API_KEY=your_key python3 update_world_wx.py
-
 Environment variables:
-    OPEN_WEATHER_API_KEY Required. OpenWeatherMap API key.
-    WORLDWX_OUT          Output wx.txt path.
-                         Default: /opt/hamclock-backend/htdocs/ham/HamClock/worldwx/wx.txt
-    WORLDWX_TMP          Directory for cache/state files.
-                         Default: /opt/hamclock-backend/tmp/worldwx
-    OWM_REQS_PER_RUN     Requests to make per invocation. Default: 10
-    OWM_SLEEP            Seconds to sleep between requests. Default: 1.1
-    OWM_RETRIES          Max retry attempts per request. Default: 3
-    OWM_BACKOFF_START    Initial backoff seconds. Default: 5
-    OWM_BACKOFF_CAP      Max backoff seconds. Default: 60
-
-Cron example (10 req every 2 min → all ~1,700 cities fresh in ~5 hrs):
-    */2 * * * * OPEN_WEATHER_API_KEY=YOUR_KEY python3 /opt/hamclock-backend/update_world_wx.py
+    OPEN_METEO_API_KEY         Optional. Commercial Open-Meteo API key.
+    OPEN_METEO_BATCH_SIZE      Points per batch HTTP request. Default: 50
+    OPEN_METEO_BATCHES_PER_RUN Batches per cron invocation. Default: 4 (200 pts/run, ~20 min full refresh)
+    OPEN_METEO_SLEEP           Seconds to sleep between batch requests. Default: 1.0
+    WORLDWX_OUT                Output wx.txt path.
+                               Default: /opt/hamclock-backend/htdocs/ham/HamClock/worldwx/wx.txt
+    WORLDWX_TMP                Directory for cache/state files.
+                               Default: /opt/hamclock-backend/tmp/worldwx
 """
 
 import json
@@ -67,33 +62,44 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-OPEN_WEATHER_API_KEY   = os.environ.get("OPEN_WEATHER_API_KEY", "")
+OPEN_METEO_API_KEY = os.environ.get("OPEN_METEO_API_KEY", "")
 
-# If API key not in env, try reading from .env file
-if not OPEN_WEATHER_API_KEY and os.path.exists("/opt/hamclock-backend/.env"):
+# If API key not in env, check optional .env file
+if not OPEN_METEO_API_KEY and os.path.exists("/opt/hamclock-backend/.env"):
     with open("/opt/hamclock-backend/.env", "r") as f:
         for line in f:
-            if line.startswith("OPEN_WEATHER_API_KEY="):
-                OPEN_WEATHER_API_KEY = line.strip().split("=", 1)[1].strip("'\"")
+            if line.startswith("OPEN_METEO_API_KEY="):
+                OPEN_METEO_API_KEY = line.strip().split("=", 1)[1].strip("'\"")
                 break
 
-OUT_TXT       = os.environ.get(
+OUT_TXT = os.environ.get(
     "WORLDWX_OUT",
     "/opt/hamclock-backend/htdocs/ham/HamClock/worldwx/wx.txt",
 )
-TMP_DIR       = os.environ.get(
+TMP_DIR = os.environ.get(
     "WORLDWX_TMP",
     "/opt/hamclock-backend/tmp/worldwx",
 )
-CITIES_FILE   = "/opt/hamclock-backend/htdocs/ham/HamClock/cities2.txt"
-CACHE_JSON    = os.path.join(TMP_DIR, "cache.json")
-STATE_JSON    = os.path.join(TMP_DIR, "state.json")
 
-REQS_PER_RUN  = int(os.environ.get("OWM_REQS_PER_RUN",   "10"))
-SLEEP_BETWEEN = float(os.environ.get("OWM_SLEEP",         "1.1"))
-MAX_TRIES     = int(os.environ.get("OWM_RETRIES",         "3"))
-BACKOFF_START = float(os.environ.get("OWM_BACKOFF_START", "5"))
-BACKOFF_CAP   = float(os.environ.get("OWM_BACKOFF_CAP",   "60"))
+CITIES_FILE = os.environ.get("CITIES_FILE", "")
+if not CITIES_FILE or not os.path.exists(CITIES_FILE):
+    for candidate in (
+        "/opt/hamclock-backend/htdocs/ham/HamClock/cities2.txt",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "../ham/HamClock/cities2.txt"),
+    ):
+        if os.path.exists(candidate):
+            CITIES_FILE = candidate
+            break
+
+CACHE_JSON = os.path.join(TMP_DIR, "cache.json")
+STATE_JSON = os.path.join(TMP_DIR, "state.json")
+
+BATCH_SIZE      = int(os.environ.get("OPEN_METEO_BATCH_SIZE", "50"))
+BATCHES_PER_RUN = int(os.environ.get("OPEN_METEO_BATCHES_PER_RUN", os.environ.get("OWM_REQS_PER_RUN", "4")))
+SLEEP_BETWEEN   = float(os.environ.get("OPEN_METEO_SLEEP", os.environ.get("OWM_SLEEP", "1.0")))
+MAX_TRIES       = int(os.environ.get("OPEN_METEO_RETRIES", "3"))
+BACKOFF_START   = float(os.environ.get("OPEN_METEO_BACKOFF_START", "2.0"))
+BACKOFF_CAP     = float(os.environ.get("OPEN_METEO_BACKOFF_CAP", "30.0"))
 
 # ---------------------------------------------------------------------------
 # Fixed output grid — must match wx.txt exactly
@@ -107,34 +113,28 @@ FALLBACK = {
     "dir":  0.0, "prs": 0.0, "wx": "Unknown", "tz": 0,
 }
 
-# OWM API endpoint
-OWM_URL = "https://api.openweathermap.org/data/2.5/weather"
+# Open-Meteo forecast API endpoint
+OPEN_METEO_URL = "https://api.open-metEO.com/v1/forecast".lower()
 
 # ---------------------------------------------------------------------------
-# OWM weather ID → HamClock wx token
+# WMO weather code → HamClock wx token
 # ---------------------------------------------------------------------------
-def wx_from_owm_id(owm_id):
-    if owm_id is None:
+def wx_from_wmo_code(code):
+    if code is None:
         return "Unknown"
-    if owm_id == 800:
+    if code == 0:
         return "Clear"
-    if 801 <= owm_id <= 804:
+    if 1 <= code <= 3:
         return "Clouds"
-    if 700 <= owm_id <= 799:
+    if code in (45, 48):
         return "Fog"
-    if 300 <= owm_id <= 321:
-        return "Rain"       # drizzle
-    if owm_id in (500, 501, 502, 503, 504):
+    if (51 <= code <= 67) or (80 <= code <= 82):
         return "Rain"
-    if 520 <= owm_id <= 531:
-        return "Rain"       # showers
-    if owm_id == 511:
-        return "Snow"       # freezing rain
-    if 600 <= owm_id <= 622:
+    if (71 <= code <= 77) or (85 <= code <= 86):
         return "Snow"
-    if 200 <= owm_id <= 232:
+    if 95 <= code <= 99:
         return "Thunderstorm"
-    return "Unknown"
+    return "Clouds"
 
 # ---------------------------------------------------------------------------
 # JSON helpers
@@ -155,8 +155,8 @@ def read_json(path, default=None):
 
 def write_json_atomic(path, obj):
     """Write obj as JSON to path atomically (tmp file + os.replace)."""
-    os.makedirs(TMP_DIR, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=TMP_DIR, prefix="cache", suffix=".tmp")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix="cache", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(obj, fh)
@@ -179,7 +179,7 @@ def load_cities(path):
     Parse cities.txt into a list of dicts: {lat, lon, label}.
     Returns empty list with a warning if the file is missing or unreadable.
     """
-    if not os.path.isfile(path):
+    if not path or not os.path.isfile(path):
         print(f"WARN: cities file not found: {path} — fetching grid in default order",
               file=sys.stderr)
         return []
@@ -225,18 +225,22 @@ def build_fetch_queue(cities):
     queue = []
 
     # Stage 1: named cities — snap each to nearest grid point, deduplicate.
-    # snap_to_grid always clamps to valid range so no GRID_SET filter needed.
     for city in cities:
         gp = snap_to_grid(city["lat"], city["lon"])
         if gp not in seen:
             seen.add(gp)
-            queue.append({"lat": gp[0], "lon": gp[1], "label": city["label"], "fetch_lat": city["lat"], "fetch_lon": city["lon"]})
+            queue.append({
+                "lat": gp[0],
+                "lon": gp[1],
+                "label": city["label"],
+                "fetch_lat": city["lat"],
+                "fetch_lon": city["lon"]
+            })
 
     city_slots = len(queue)
 
     # Stage 2: remaining grid points (lon-major to match wx.txt write order).
     # Skip pure-ocean points that have no city — no useful weather display there.
-    # If global_land_mask is unavailable, fall back to fetching all points.
     skipped = 0
     for lon in LONS:
         for lat in LATS:
@@ -245,7 +249,13 @@ def build_fetch_queue(cities):
                     skipped += 1
                     continue  # pure ocean, no city — skip
                 seen.add((lat, lon))
-                queue.append({"lat": lat, "lon": lon, "label": None, "fetch_lat": lat, "fetch_lon": lon})
+                queue.append({
+                    "lat": lat,
+                    "lon": lon,
+                    "label": None,
+                    "fetch_lat": lat,
+                    "fetch_lon": lon
+                })
 
     if skipped:
         print(f"INFO: skipped {skipped} pure-ocean grid points (no city nearby).",
@@ -254,42 +264,54 @@ def build_fetch_queue(cities):
     return queue, city_slots
 
 # ---------------------------------------------------------------------------
-# OWM fetch with retry / exponential backoff
+# Open-Meteo batch fetch with retry / exponential backoff
 # ---------------------------------------------------------------------------
-def parse_owm(data):
-    """Extract weather fields from an OWM /weather JSON response."""
-    main    = data.get("main", {})
-    wind    = data.get("wind", {})
-    weather = data.get("weather", [{}])
-    owm_id  = weather[0].get("id") if weather else None
-
-    # Prefer sea-level pressure; fall back to station pressure
-    prs = main.get("sea_level") or main.get("pressure") or 0.0
+def parse_open_meteo_point(point_data):
+    """Extract weather fields from an Open-Meteo forecast JSON item."""
+    c = point_data.get("current", {})
+    prs = c.get("surface_pressure") or 0.0
 
     return {
-        "temp": float(main.get("temp",     0.0)),
-        "hum":  float(main.get("humidity", 0.0)),
-        "mps":  float(wind.get("speed",    0.0)),
-        "dir":  float(wind.get("deg",      0.0)),
+        "temp": float(c.get("temperature_2m",       0.0)),
+        "hum":  float(c.get("relative_humidity_2m",  0.0)),
+        "mps":  float(c.get("wind_speed_10m",        0.0)),
+        "dir":  float(c.get("wind_direction_10m",    0.0)),
         "prs":  float(prs),
-        "wx":   wx_from_owm_id(owm_id),
-        "tz":   int(data.get("timezone",   0)),
+        "wx":   wx_from_wmo_code(c.get("weather_code")),
+        "tz":   int(point_data.get("utc_offset_seconds", 0)),
         "ts":   int(time.time()),
     }
 
 
-def fetch_owm(session, lat, lon):
+def fetch_open_meteo_batch(session, batch_entries):
     """
-    Fetch current weather for (lat, lon) from OWM.
-    Returns a parsed record dict on success, or None to signal the caller
-    to stop making requests this run (rate-limit or repeated failure).
+    Fetch current weather for a batch of entries from Open-Meteo.
+    Returns a list of parsed record dicts, or None to signal caller to stop.
     """
-    params  = {"lat": lat, "lon": lon, "appid": OPEN_WEATHER_API_KEY, "units": "metric"}
+    lat_q = ",".join(f"{e.get('fetch_lat', e['lat']):.4f}" for e in batch_entries)
+    lon_q = ",".join(f"{e.get('fetch_lon', e['lon']):.4f}" for e in batch_entries)
+
+    params = {
+        "latitude": lat_q,
+        "longitude": lon_q,
+        "current": (
+            "temperature_2m,"
+            "relative_humidity_2m,"
+            "wind_speed_10m,"
+            "wind_direction_10m,"
+            "surface_pressure,"
+            "weather_code"
+        ),
+        "wind_speed_unit": "ms",
+    }
+    if OPEN_METEO_API_KEY:
+        params["apikey"] = OPEN_METEO_API_KEY
+
     backoff = BACKOFF_START
 
     for attempt in range(1, MAX_TRIES + 1):
         try:
-            r = session.get(OWM_URL, params=params, timeout=10)
+            r = session.get(OPEN_METEO_URL, params=params, timeout=15)
         except requests.RequestException as exc:
             print(f"WARN: network error (attempt {attempt}/{MAX_TRIES}): {exc}",
                   file=sys.stderr)
@@ -299,33 +321,35 @@ def fetch_owm(session, lat, lon):
 
         if r.status_code == 200:
             try:
-                return parse_owm(r.json())
+                data = r.json()
+                if isinstance(data, dict):
+                    data = [data]
+                results = []
+                for item in data[:len(batch_entries)]:
+                    results.append(parse_open_meteo_point(item))
+                return results
             except Exception as exc:
-                print(f"WARN: JSON parse error at ({lat},{lon}): {exc}",
-                      file=sys.stderr)
+                print(f"WARN: JSON parse error: {exc}", file=sys.stderr)
                 return None
 
-        elif r.status_code == 401:
-            sys.exit("ERROR: OWM API key rejected (401). Check OPEN_WEATHER_API_KEY.")
-
         elif r.status_code == 429:
-            print("WARN: OWM rate limit (429) — stopping requests this run.",
+            print("WARN: Open-Meteo rate limit (429) — stopping requests this run.",
                   file=sys.stderr)
-            return None  # caller breaks the loop
+            return None
 
         elif r.status_code in (500, 502, 503, 504):
-            print(f"WARN: OWM HTTP {r.status_code} (attempt {attempt}/{MAX_TRIES})",
+            print(f"WARN: Open-Meteo HTTP {r.status_code} (attempt {attempt}/{MAX_TRIES})",
                   file=sys.stderr)
             time.sleep(min(backoff, BACKOFF_CAP))
             backoff = min(backoff * 2, BACKOFF_CAP)
 
         else:
-            print(f"WARN: OWM HTTP {r.status_code} at ({lat},{lon}) "
-                  f"(attempt {attempt}/{MAX_TRIES})", file=sys.stderr)
+            print(f"WARN: Open-Meteo HTTP {r.status_code} (attempt {attempt}/{MAX_TRIES})",
+                  file=sys.stderr)
             time.sleep(min(backoff, BACKOFF_CAP))
             backoff = min(backoff * 2, BACKOFF_CAP)
 
-    print(f"WARN: giving up on ({lat},{lon}) after {MAX_TRIES} attempts.",
+    print(f"WARN: giving up on batch after {MAX_TRIES} attempts.",
           file=sys.stderr)
     return None
 
@@ -381,19 +405,15 @@ def write_wx_txt(out_path, cache):
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    # Validate API key before doing anything else
-    if not OPEN_WEATHER_API_KEY:
-        sys.exit(
-            "ERROR: OPEN_WEATHER_API_KEY is not set.\n"
-            "Export it, put OPEN_WEATHER_API_KEY in /opt/hamclock-backend/.env, or prefix: OPEN_WEATHER_API_KEY=your_key python3 update_world_wx.py"
-        )
-
     os.makedirs(TMP_DIR, exist_ok=True)
 
     # Load cities and build prioritised fetch queue
     cities = load_cities(CITIES_FILE)
     queue, city_slots = build_fetch_queue(cities)
-    total  = len(queue)
+    total = len(queue)
+
+    if total == 0:
+        sys.exit("ERROR: fetch queue is empty.")
 
     print(f"INFO: queue has {total} points "
           f"({city_slots} city grid points first, "
@@ -408,40 +428,39 @@ def main():
 
     # HTTP session (connection pooling + shared headers)
     session = requests.Session()
-    session.headers.update({"User-Agent": "hamclock-worldwx-py/1.0"})
+    session.headers.update({"User-Agent": "hamclock-worldwx-openmeteo/1.0"})
 
-    # Fetch loop
-    fetched = 0
-    for _ in range(REQS_PER_RUN):
-        entry = queue[idx]
-        lat, lon = entry["lat"], entry["lon"]           # grid key coords
-        fetch_lat = entry.get("fetch_lat", lat)         # actual fetch coords
-        fetch_lon = entry.get("fetch_lon", lon)
-        label = entry["label"] or f"grid({lat},{lon})"
+    # Fetch loop with gentle rotation across batches
+    total_fetched = 0
+    for batch_num in range(BATCHES_PER_RUN):
+        batch_entries = []
+        for i in range(BATCH_SIZE):
+            entry_idx = (idx + i) % total
+            batch_entries.append(queue[entry_idx])
 
-        # Show both if city coords differ significantly from grid coords
-        if abs(fetch_lat - lat) > 0.01 or abs(fetch_lon - lon) > 0.01:
-            print(f"INFO: fetching [{idx+1}/{total}] {label} @ ({fetch_lat:.2f},{fetch_lon:.2f}) → grid ({lat},{lon})", file=sys.stderr)
-        else:
-            print(f"INFO: fetching [{idx+1}/{total}] {label} ({lat},{lon})", file=sys.stderr)
+        print(f"INFO: fetching batch [{batch_num + 1}/{BATCHES_PER_RUN}] "
+              f"({len(batch_entries)} points, starting at queue index {idx + 1}/{total})",
+              file=sys.stderr)
 
-        result = fetch_owm(session, fetch_lat, fetch_lon)
-        if result is None:
-            # Rate-limited or repeated failure — stop now but still write output
+        results = fetch_open_meteo_batch(session, batch_entries)
+        if results is None or not results:
             break
 
-        key = f"{lat},{lon}"
-        cache[key] = result
+        for entry, record in zip(batch_entries, results):
+            key = f"{entry['lat']},{entry['lon']}"
+            cache[key] = record
+
         write_json_atomic(CACHE_JSON, cache)
 
-        idx = (idx + 1) % total
+        idx = (idx + len(results)) % total
         write_json_atomic(STATE_JSON, {"idx": idx})
 
-        fetched += 1
-        if fetched < REQS_PER_RUN:
+        total_fetched += len(results)
+
+        if batch_num + 1 < BATCHES_PER_RUN:
             time.sleep(SLEEP_BETWEEN)
 
-    print(f"INFO: fetched {fetched} point(s) this run. Writing wx.txt …", file=sys.stderr)
+    print(f"INFO: fetched {total_fetched} point(s) this run. Writing wx.txt …", file=sys.stderr)
 
     # Always rewrite the full output file from cache
     write_wx_txt(OUT_TXT, cache)
