@@ -45,5 +45,7 @@ runuser_wrapper $SCRIPTS/web15rss_fetch.py
 /bin/true # example
 
 # new scripts to prime
+runuser_wrapper $SCRIPTS/update_all_sdo.sh
+runuser_wrapper $SCRIPTS/update_tropo_maps.sh
 
 #############################################
