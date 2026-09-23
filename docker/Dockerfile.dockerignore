@@ -7,3 +7,5 @@
 /notes
 docker/msg
 docker/logs
+**/*.bmp
+**/*.bmp.z

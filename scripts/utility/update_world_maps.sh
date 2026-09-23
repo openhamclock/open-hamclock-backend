@@ -102,14 +102,22 @@ im_convert() {
 # ---------------------------------------------------------------------------
 
 make_bmp_v4_rgb565_topdown() {
-  local inraw="$1" outbmp="$2" W="$3" H="$4"
-  python3 - <<'PY' "$inraw" "$outbmp" "$W" "$H"
+  local inpng="$1" outbmp="$2" W="$3" H="$4" DN="${5:-D}"
+  python3 - <<'PY' "$inpng" "$outbmp" "$W" "$H" "$DN"
 import struct, sys
-inraw, outbmp, W, H = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
-raw = open(inraw, "rb").read()
-exp = W*H*3
-if len(raw) != exp:
-    raise SystemExit(f"RAW size {len(raw)} != expected {exp}")
+from PIL import Image, ImageEnhance
+inpng, outbmp, W, H, DN = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+
+img = Image.open(inpng).convert("RGB")
+if img.size != (W, H):
+    img = img.resize((W, H), Image.LANCZOS)
+
+# Apply night brightness scaling (matching MUF-RT / Wx model) so night region
+# remains fully legible while clearly marking the solar terminator
+if DN == "N":
+    img = ImageEnhance.Brightness(img).enhance(0.48)
+
+raw = img.tobytes()
 pix = bytearray(W*H*2)
 j = 0
 for i in range(0, len(raw), 3):
@@ -145,7 +153,7 @@ open(sys.argv[2], 'wb').write(zlib.compress(data, 9))
 
 # Rasterize a PostScript file to PNG via Ghostscript, then resize + convert to BMP
 render_ps_to_bmp() {
-  local PS="$1" PNG="$2" PNG_FIXED="$3" BMP="$4" RENDER_W="$5" RENDER_H="$6" W="$7" H="$8" SZ="$9"
+  local PS="$1" PNG="$2" PNG_FIXED="$3" BMP="$4" RENDER_W="$5" RENDER_H="$6" W="$7" H="$8" SZ="$9" DN="${10:-D}"
 
   gs -dBATCH -dNOPAUSE -dSAFER -dQUIET \
      -sDEVICE=png16m \
@@ -158,14 +166,10 @@ render_ps_to_bmp() {
   im_convert "$PNG" -filter Lanczos -resize "${SZ}!" "$PNG_FIXED" \
     || { echo "  resize failed for $SZ" >&2; return 1; }
 
-  RAW="${BMP%.bmp}.raw"
-  im_convert "$PNG_FIXED" RGB:"$RAW" \
-    || { echo "  raw extract failed for $SZ" >&2; return 1; }
-
-  make_bmp_v4_rgb565_topdown "$RAW" "$BMP" "$W" "$H" \
+  make_bmp_v4_rgb565_topdown "$PNG_FIXED" "$BMP" "$W" "$H" "$DN" \
     || { echo "  bmp write failed for $SZ" >&2; return 1; }
 
-  rm -f "$RAW" "$PNG" "$PNG_FIXED" "$PS"
+  rm -f "$PNG" "$PNG_FIXED" "$PS"
 
   zlib_compress "$BMP" "${BMP}.z"
   chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
@@ -175,30 +179,8 @@ render_ps_to_bmp() {
 # CPT colour tables
 # ---------------------------------------------------------------------------
 
-# Day terrain: GMT built-in 'geo' CPT — the classic continuous hypsometric
-# tint used in most published GMT maps.  No hard colour bands.
+# Terrain: GMT built-in 'geo' CPT — continuous hypsometric tint
 gmt makecpt -C"${TERRAIN_CPT_DAY}" -T-8000/8000 -Z > terrain_D.cpt
-
-# Night terrain: GMT built-in 'globe' CPT (darker, more dramatic), then
-# dimmed further to ~55% brightness for a night feel.
-gmt makecpt -C"${TERRAIN_CPT_NIGHT}" -T-8000/8000 -Z > terrain_N.cpt
-python3 - <<'PY'
-import re
-lines = open("terrain_N.cpt").readlines()
-out = []
-for line in lines:
-    m = re.match(
-        r'^(-?[\d.eE+-]+)\s+(\d+)/(\d+)/(\d+)\s+(-?[\d.eE+-]+)\s+(\d+)/(\d+)/(\d+)(.*)',
-        line.strip()
-    )
-    if m:
-        v1,r1,g1,b1,v2,r2,g2,b2,rest = m.groups()
-        def dim(c): return int(int(c)*0.55)
-        out.append(f"{v1}\t{dim(r1)}/{dim(g1)}/{dim(b1)}\t{v2}\t{dim(r2)}/{dim(g2)}/{dim(b2)}{rest}\n")
-    else:
-        out.append(line)
-open("terrain_N.cpt","w").writelines(out)
-PY
 
 # ---------------------------------------------------------------------------
 # Download ETOPO terrain grid (only once)
@@ -266,6 +248,74 @@ for DN in "${FILTER_DN[@]}"; do
 
     echo "  -> ${DN} ${SZ} (render ${RENDER_W}x${RENDER_H})"
 
+    # -----------------------------------------------------------------
+    # Countries: preserve multi-color political maps & derive colorful night
+    # -----------------------------------------------------------------
+    if [[ "$MAPTYPE" == "Countries" && "$DN" == "D" && -f "$BMP" ]]; then
+      echo "  -> Preserving existing multi-color political Countries Day map: $BMP"
+      continue
+    fi
+
+    if [[ "$MAPTYPE" == "Countries" && "$DN" == "N" ]]; then
+      DAY_BMP="$OUTDIR/map-D-${SZ}-Countries.bmp"
+      DAY_Z="$OUTDIR/map-D-${SZ}-Countries.bmp.z"
+      if [[ -f "$DAY_BMP" || -f "$DAY_Z" ]]; then
+        echo "  -> Deriving colorful night map from $DAY_BMP"
+        python3 - <<'PY' "$DAY_BMP" "$DAY_Z" "$BMP" "${BMP}.z" "$W" "$H"
+import sys, os, zlib, struct
+from io import BytesIO
+from PIL import Image, ImageEnhance
+
+day_bmp, day_z, out_bmp, out_z, W, H = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6])
+if os.path.isfile(day_bmp):
+    img = Image.open(day_bmp)
+else:
+    raw = zlib.decompress(open(day_z, "rb").read())
+    img = Image.open(BytesIO(raw))
+
+img = img.convert("RGB")
+if img.size != (W, H):
+    img = img.resize((W, H), Image.LANCZOS)
+
+night = ImageEnhance.Brightness(img).enhance(0.50)
+night_color = ImageEnhance.Color(night).enhance(1.25)
+
+raw = night_color.tobytes()
+row_bytes = W * 2
+pad = (4 - (row_bytes % 4)) % 4
+image_size = (row_bytes + pad) * H
+bfSize = 14 + 108 + image_size
+filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, 14 + 108)
+v4hdr = struct.pack(
+    "<IiiHHIIIIII",
+    108, W, -H, 1, 16, 3, image_size, 0, 0, 0, 0
+) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
+  + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
+
+pix = bytearray((row_bytes + pad) * H)
+di = 0
+oi = 0
+for y in range(H):
+    for x in range(W):
+        r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
+        v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        pix[oi] = v & 0xFF
+        pix[oi+1] = (v >> 8) & 0xFF
+        oi += 2
+    oi += pad
+
+bmp_data = filehdr + v4hdr + bytes(pix)
+with open(out_bmp, "wb") as f:
+    f.write(bmp_data)
+with open(out_z, "wb") as f:
+    f.write(zlib.compress(bmp_data, 9))
+PY
+        chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+        echo "  -> Done: $BMP  (+${BMP}.z)"
+        continue
+      fi
+    fi
+
     # Per-size GMT config dir (avoids concurrent write collisions)
     GMT_CONF="$GMT_USERDIR/gmtconf_${MAPTYPE}_${DN}_${SZ}"
     mkdir -p "$GMT_CONF"
@@ -283,22 +333,16 @@ for DN in "${FILTER_DN[@]}"; do
       if [[ "$MAPTYPE" == "Countries" ]]; then
         # ---------------------------------------------------------------
         # Countries map
-        # Day:   blue ocean, muted-green land, white borders + country borders
-        # Night: black ocean, very dark land, dim borders
+        # Day & Night share the same cartographic vector base:
+        # blue ocean, muted-green land, white borders + country borders.
+        # Night is dimmed by 0.48 in make_bmp_v4_rgb565_topdown (MUF-RT model)
+        # so the solar terminator is clear while all details remain fully legible.
         # ---------------------------------------------------------------
-        if [[ "$DN" == "D" ]]; then
-          OCEAN="30/100/200"    # medium blue
-          LAND="100/140/70"     # muted green
-          BORDER_W="1.0p,white"
-          CBORDER="0.4p,200/200/200"   # country borders
-          NBORDER="0.8p,white"         # national borders (coastline weight)
-        else
-          OCEAN="0/0/0"
-          LAND="15/25/10"
-          BORDER_W="0.8p,50/50/50"
-          CBORDER="0.3p,40/40/40"
-          NBORDER="0.6p,60/60/60"
-        fi
+        OCEAN="30/100/200"           # medium blue
+        LAND="100/140/70"            # muted green
+        BORDER_W="1.0p,white"        # coastlines
+        CBORDER="0.4p,200/200/200"   # country borders
+        NBORDER="0.8p,white"         # national borders (coastline weight)
 
         GMT_USERDIR="$GMT_CONF" \
           gmt pscoast \
@@ -323,20 +367,13 @@ for DN in "${FILTER_DN[@]}"; do
       else
         # ---------------------------------------------------------------
         # Terrain / Relief map
-        # Day:   hypsometric tint + hillshade
-        # Night: dark hypsometric tint + subtle hillshade
+        # Day & Night use hypsometric tint + hillshade + crisp borders.
+        # Night is dimmed by 0.48 in make_bmp_v4_rgb565_topdown (MUF-RT model).
         # ---------------------------------------------------------------
-        if [[ "$DN" == "D" ]]; then
-          CPT="$GMT_USERDIR/terrain_D.cpt"
-          INTENSITY="-I${GMT_USERDIR}/hillshade.nc"
-          COAST_W="0.5p,50/50/50"
-          BORDER_C="0.3p,80/80/80"
-        else
-          CPT="$GMT_USERDIR/terrain_N.cpt"
-          INTENSITY="-I${GMT_USERDIR}/hillshade.nc"
-          COAST_W="0.5p,20/20/20"
-          BORDER_C="0.2p,30/30/30"
-        fi
+        CPT="$GMT_USERDIR/terrain_D.cpt"
+        INTENSITY="-I${GMT_USERDIR}/hillshade.nc"
+        COAST_W="0.8p,white"
+        BORDER_C="0.4p,200/200/200"
 
         # Base: filled coast (ocean colour from CPT bottom)
         GMT_USERDIR="$GMT_CONF" \
@@ -374,7 +411,7 @@ for DN in "${FILTER_DN[@]}"; do
 
     render_ps_to_bmp \
       "$PS" "$PNG" "$PNG_FIXED" "$BMP" \
-      "$RENDER_W" "$RENDER_H" "$W" "$H" "$SZ" \
+      "$RENDER_W" "$RENDER_H" "$W" "$H" "$SZ" "$DN" \
       || continue
 
     echo "  -> Done: $BMP  (+${BMP}.z)"
