@@ -2,6 +2,10 @@
 # don't include these files in the git repo
 *.env
 ohb-maps.tar.zst
+ohb-maps.tar.zst.sha256
+*.sha256
+*.bmp
+*.bmp.z
 notes/
 .vscode/
 .agent/

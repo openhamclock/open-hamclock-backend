@@ -167,7 +167,7 @@ get_maps() {
     if [ ! -e ohb-maps.tar.zst ]; then
         echo
         echo "Getting ohb-maps from GitHub ..."
-        curl -fsSLO $GIT_REPO/releases/download/maps-v1/ohb-maps.tar.zst
+        curl -fsSLO $GIT_REPO/releases/download/maps-v2/ohb-maps.tar.zst
     fi
 }
 
