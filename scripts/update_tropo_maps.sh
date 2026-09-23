@@ -191,7 +191,7 @@ all_fields = {}     # flat (surface-type) fields:  name -> 2D array
 level_fields = {}   # pressure-level fields:       name -> {level_mb: 2D array}
 lats = lons = None
 
-for ds in cfgrib.open_datasets(GRFILE):
+for ds in cfgrib.open_datasets(GRFILE, decode_timedelta=True):
     is_plevel = 'isobaricInhPa' in ds.coords
     for var in ds.data_vars:
         da = ds[var]
@@ -267,23 +267,35 @@ for label, arr in (('sfc', N_sfc), ('925mb', N_925), ('850mb', N_850)):
 MIN_LAYER_M = 50.0
 
 dz_sfc925 = Z_925 - HGT_sfc
+dz_925850 = Z_850 - Z_925
+dz_sfc850 = Z_850 - HGT_sfc
+
 above925 = dz_sfc925 > MIN_LAYER_M   # is the 925mb level actually above local terrain?
+above850 = dz_sfc850 > MIN_LAYER_M   # is the 850mb level actually above local terrain?
+
+# Layer 1: surface to 925mb (valid only when 925mb is above local terrain)
 grad_sfc925 = np.where(above925,
                         (N_925 - N_sfc) / (dz_sfc925 / 1000.0), np.nan)
 
-# If 925mb is at/below local terrain it isn't a real measurement (GFS
-# extrapolates below-ground pressure levels), so gate BOTH layers on
-# above925 -- a bad 925mb value would otherwise corrupt the 925-850mb
-# gradient too, even though that layer doesn't touch HGT_sfc directly.
-dz_925850 = Z_850 - Z_925
+# Layer 2: 925mb to 850mb (valid only when 925mb is above local terrain)
 grad_925850 = np.where(above925 & (dz_925850 > MIN_LAYER_M),
                         (N_850 - N_925) / (dz_925850 / 1000.0), np.nan)
 
-# Take whichever layer shows the stronger (more negative) trapping signal —
-# this catches both surface-based ducts (sfc-925mb) and elevated subsidence
-# inversions (925-850mb, e.g. the marine-layer ducts common off west coasts).
-# np.fmin ignores NaN unless BOTH layers are NaN (e.g. high terrain).
-G = np.fmin(grad_sfc925, grad_925850)
+# Layer 3: surface to 850mb (for intermediate terrain where 925mb is at/below terrain
+# but 850mb is above terrain, e.g. 700m to 1400m elevation in coastal ranges/high plains)
+grad_sfc850 = np.where((~above925) & above850,
+                        (N_850 - N_sfc) / (dz_sfc850 / 1000.0), np.nan)
+
+# Take whichever layer shows the stronger (more negative) trapping signal:
+G_layers = np.fmin(grad_sfc925, grad_925850)
+G = np.where(np.isfinite(G_layers), G_layers, grad_sfc850)
+
+# High terrain (where even 850mb is at/below local terrain, e.g. Greenland ice sheet,
+# high Rockies, Tibetan Plateau): tropospheric ducting does not occur over high peaks
+# or polar ice caps due to cold, dry air and absence of boundary trapping inversions.
+# Default to standard atmosphere (-39 N/km, no effect / Band 0).
+STD_ATM_GRAD = -39.0
+G = np.where(np.isfinite(G), G, STD_ATM_GRAD)
 
 print(f"  dN/dz range: [{np.nanmin(G):.1f}, {np.nanmax(G):.1f}] N-units/km  "
       f"(standard atm. ~ -39, trapping threshold = -157)", file=sys.stderr)
@@ -400,7 +412,7 @@ with open("tropo.cpt", "w") as f:
     f.write("\n".join(cpt_lines) + "\n")
     f.write(f"B      {r10}/{g10}/{b10}\n")   # below the lowest edge: band 10+
     f.write(f"F      {r0}/{g0b}/{b0}\n")     # above the highest edge: band 0
-    f.write("N      0/0/0\n")
+    f.write(f"N      {r0}/{g0b}/{b0}\n")     # NaN fallback: band 0 (standard atmosphere / no ducting)
 
 print("  Wrote percentile-based tropo.cpt (11 bands)", file=sys.stderr)
 
