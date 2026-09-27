@@ -115,7 +115,7 @@ if img.size != (W, H):
 # Apply night brightness scaling (matching MUF-RT / Wx model) so night region
 # remains fully legible while clearly marking the solar terminator
 if DN == "N":
-    img = ImageEnhance.Brightness(img).enhance(0.48)
+    img = ImageEnhance.Brightness(img).enhance(0.25)
 
 raw = img.tobytes()
 pix = bytearray(W*H*2)
@@ -256,6 +256,14 @@ for DN in "${FILTER_DN[@]}"; do
       continue
     fi
 
+    # -----------------------------------------------------------------
+    # Terrain: preserve authentic Terrain Night maps (with city lights)
+    # -----------------------------------------------------------------
+    if [[ "$MAPTYPE" == "Terrain" && "$DN" == "N" && -f "$BMP" ]]; then
+      echo "  -> Preserving existing Terrain Night map (with city lights): $BMP"
+      continue
+    fi
+
     if [[ "$MAPTYPE" == "Countries" && "$DN" == "N" ]]; then
       DAY_BMP="$OUTDIR/map-D-${SZ}-Countries.bmp"
       DAY_Z="$OUTDIR/map-D-${SZ}-Countries.bmp.z"
@@ -277,7 +285,7 @@ img = img.convert("RGB")
 if img.size != (W, H):
     img = img.resize((W, H), Image.LANCZOS)
 
-night = ImageEnhance.Brightness(img).enhance(0.50)
+night = ImageEnhance.Brightness(img).enhance(0.25)
 night_color = ImageEnhance.Color(night).enhance(1.25)
 
 raw = night_color.tobytes()
