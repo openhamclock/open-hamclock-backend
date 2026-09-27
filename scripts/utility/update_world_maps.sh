@@ -1,8 +1,9 @@
 #!/bin/bash
 # update_world_maps.sh
-# Generates two map types for HamClock-compatible use:
+# Generates three map types for HamClock-compatible use:
 #   1. Countries map  (political borders, day/night variants)
 #   2. Terrain relief map (ETOPO/SRTM shaded relief, day/night variants)
+#   3. Physical map   (Natural Earth land cover & NASA city lights, day/night variants)
 #
 # Output: BMP (RGB565, V4 header, top-down) + zlib-compressed .bmp.z
 # Sizes: 660x330 1320x660 1980x990 2640x1320 3960x1980 5280x2640 5940x2970 7920x3960
@@ -12,8 +13,26 @@ set -e
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-export GMT_USERDIR=/opt/hamclock-backend/tmp
-OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
+SCRIPT_PATH="$(realpath "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+if [[ -z "$GMT_USERDIR" ]]; then
+  if [[ -w "/opt/hamclock-backend" ]]; then
+    GMT_USERDIR="/opt/hamclock-backend/tmp"
+  else
+    GMT_USERDIR="${SCRIPT_DIR}/../../tmp/gmt"
+  fi
+fi
+if [[ -z "$OUTDIR" ]]; then
+  if [[ -d "/opt/hamclock-backend/htdocs/ham/HamClock/maps" && -w "/opt/hamclock-backend/htdocs/ham/HamClock/maps" ]]; then
+    OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
+  elif [[ -w "/opt/hamclock-backend" ]]; then
+    OUTDIR="/opt/hamclock-backend/htdocs/ham/HamClock/maps"
+  else
+    OUTDIR="${SCRIPT_DIR}/../../htdocs/ham/HamClock/maps"
+  fi
+fi
+
 mkdir -p "$GMT_USERDIR" "$OUTDIR"
 cd "$GMT_USERDIR"
 
@@ -29,19 +48,21 @@ ALL_SIZES=(
 )
 
 # Allow sizes and map types to be filtered via arguments:
-#   ./update_world_maps.sh [size ...] [--type Countries|Terrain] [--day] [--night]
+#   ./update_world_maps.sh [size ...] [--type Countries|Terrain|Physical] [--day] [--night] [--force]
 #
 # Examples:
-#   ./update_world_maps.sh                          # all sizes, both types, D+N
+#   ./update_world_maps.sh                          # all sizes, all 3 types, D+N
 #   ./update_world_maps.sh 660x330                  # one size only
-#   ./update_world_maps.sh 660x330 1320x660         # two sizes
+#   ./update_world_maps.sh --type Physical 2640x1320 # physical only, one size
 #   ./update_world_maps.sh --type Terrain 1320x660  # terrain only, one size
 #   ./update_world_maps.sh --day 660x330            # day variant only
 #   ./update_world_maps.sh --type Countries --night # countries night, all sizes
+#   ./update_world_maps.sh --force                  # bypass preservation and force regenerate
 
 SIZES=()
 FILTER_TYPES=()
 FILTER_DN=()
+FORCE=false
 i=1
 while [[ $i -le $# ]]; do
   arg="${!i}"
@@ -51,33 +72,34 @@ while [[ $i -le $# ]]; do
       FILTER_TYPES+=("${!i}") ;;
     --day)   FILTER_DN+=("D") ;;
     --night) FILTER_DN+=("N") ;;
+    --force) FORCE=true ;;
     --cpt)
       i=$(( i+1 ))
-      TERRAIN_CPT_DAY="${!i}"
-      TERRAIN_CPT_NIGHT="${!i}" ;;
+      TERRAIN_CPT_DAY="${!i}" ;;
     *x*)     SIZES+=("$arg") ;;
     *)       echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
   i=$(( i+1 ))
 done
 
-[[ ${#SIZES[@]}      -eq 0 ]] && SIZES=("${ALL_SIZES[@]}")
-[[ ${#FILTER_TYPES[@]} -eq 0 ]] && FILTER_TYPES=("Countries" "Terrain")
-[[ ${#FILTER_DN[@]}  -eq 0 ]] && FILTER_DN=("D" "N")
+[[ ${#SIZES[@]}        -eq 0 ]] && SIZES=("${ALL_SIZES[@]}")
+[[ ${#FILTER_TYPES[@]} -eq 0 ]] && FILTER_TYPES=("Countries" "Terrain" "Physical")
+[[ ${#FILTER_DN[@]}    -eq 0 ]] && FILTER_DN=("D" "N")
 
-# Terrain CPT defaults (day uses geo, night uses globe dimmed to 55%)
-# Override both with --cpt <name>, e.g.: --cpt srtm
+# Terrain CPT defaults (day uses geo)
+# Override with --cpt <name>, e.g.: --cpt srtm
 # Available GMT built-ins worth trying: geo srtm dem1 dem2 etopo1 relief globe
 TERRAIN_CPT_DAY="${TERRAIN_CPT_DAY:-geo}"
-TERRAIN_CPT_NIGHT="${TERRAIN_CPT_NIGHT:-globe}"
 
 echo "Sizes   : ${SIZES[*]}"
 echo "Types   : ${FILTER_TYPES[*]}"
 echo "Variants: ${FILTER_DN[*]}"
-echo "CPT day : ${TERRAIN_CPT_DAY}  / night: ${TERRAIN_CPT_NIGHT}"
+echo "Force   : ${FORCE}"
+echo "CPT day : ${TERRAIN_CPT_DAY}"
+echo "Outdir  : ${OUTDIR}"
 
 # ---------------------------------------------------------------------------
-# ImageMagick resource limits (same as aurora script)
+# ImageMagick resource limits
 # ---------------------------------------------------------------------------
 export MAGICK_LIMIT_WIDTH=65536
 export MAGICK_LIMIT_HEIGHT=65536
@@ -98,47 +120,46 @@ im_convert() {
 }
 
 # ---------------------------------------------------------------------------
-# Shared helpers (identical to aurora script)
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 make_bmp_v4_rgb565_topdown() {
-  local inpng="$1" outbmp="$2" W="$3" H="$4" DN="${5:-D}"
-  python3 - <<'PY' "$inpng" "$outbmp" "$W" "$H" "$DN"
+  local inpng="$1" outbmp="$2" W="$3" H="$4"
+  python3 - <<'PY' "$inpng" "$outbmp" "$W" "$H"
 import struct, sys
-from PIL import Image, ImageEnhance
-inpng, outbmp, W, H, DN = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+from PIL import Image
+inpng, outbmp, W, H = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 
 img = Image.open(inpng).convert("RGB")
 if img.size != (W, H):
     img = img.resize((W, H), Image.LANCZOS)
 
-# Apply night brightness scaling (matching MUF-RT / Wx model) so night region
-# remains fully legible while clearly marking the solar terminator
-if DN == "N":
-    img = ImageEnhance.Brightness(img).enhance(0.25)
-
 raw = img.tobytes()
-pix = bytearray(W*H*2)
-j = 0
-for i in range(0, len(raw), 3):
-    r = raw[i]; g = raw[i+1]; b = raw[i+2]
-    v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
-    pix[j:j+2] = struct.pack("<H", v)
-    j += 2
-bfOffBits = 14 + 108
-bfSize = bfOffBits + len(pix)
-filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, bfOffBits)
-biSize = 108
-rmask, gmask, bmask, amask = 0xF800, 0x07E0, 0x001F, 0x0000
-cstype = 0x73524742
-endpoints = b"\x00"*36
-gamma = b"\x00"*12
-v4hdr = struct.pack("<IiiHHIIIIII",
-    biSize, W, -H, 1, 16, 3, len(pix), 0, 0, 0, 0
-) + struct.pack("<IIII", rmask, gmask, bmask, amask) \
-  + struct.pack("<I", cstype) + endpoints + gamma
+row_bytes = W * 2
+pad = (4 - (row_bytes % 4)) % 4
+image_size = (row_bytes + pad) * H
+bfSize = 14 + 108 + image_size
+filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, 14 + 108)
+v4hdr = struct.pack(
+    "<IiiHHIIIIII",
+    108, W, -H, 1, 16, 3, image_size, 0, 0, 0, 0
+) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
+  + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
+
+pix = bytearray(image_size)
+di, oi = 0, 0
+for y in range(H):
+    for x in range(W):
+        r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
+        v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        pix[oi] = v & 0xFF
+        pix[oi+1] = (v >> 8) & 0xFF
+        oi += 2
+    oi += pad
+
+bmp_data = filehdr + v4hdr + bytes(pix)
 with open(outbmp, "wb") as f:
-    f.write(filehdr); f.write(v4hdr); f.write(pix)
+    f.write(bmp_data)
 PY
 }
 
@@ -153,7 +174,7 @@ open(sys.argv[2], 'wb').write(zlib.compress(data, 9))
 
 # Rasterize a PostScript file to PNG via Ghostscript, then resize + convert to BMP
 render_ps_to_bmp() {
-  local PS="$1" PNG="$2" PNG_FIXED="$3" BMP="$4" RENDER_W="$5" RENDER_H="$6" W="$7" H="$8" SZ="$9" DN="${10:-D}"
+  local PS="$1" PNG="$2" PNG_FIXED="$3" BMP="$4" RENDER_W="$5" RENDER_H="$6" W="$7" H="$8" SZ="$9"
 
   gs -dBATCH -dNOPAUSE -dSAFER -dQUIET \
      -sDEVICE=png16m \
@@ -166,7 +187,7 @@ render_ps_to_bmp() {
   im_convert "$PNG" -filter Lanczos -resize "${SZ}!" "$PNG_FIXED" \
     || { echo "  resize failed for $SZ" >&2; return 1; }
 
-  make_bmp_v4_rgb565_topdown "$PNG_FIXED" "$BMP" "$W" "$H" "$DN" \
+  make_bmp_v4_rgb565_topdown "$PNG_FIXED" "$BMP" "$W" "$H" \
     || { echo "  bmp write failed for $SZ" >&2; return 1; }
 
   rm -f "$PNG" "$PNG_FIXED" "$PS"
@@ -176,46 +197,37 @@ render_ps_to_bmp() {
 }
 
 # ---------------------------------------------------------------------------
-# CPT colour tables
-# ---------------------------------------------------------------------------
-
-# Terrain: GMT built-in 'geo' CPT — continuous hypsometric tint
-gmt makecpt -C"${TERRAIN_CPT_DAY}" -T-8000/8000 -Z > terrain_D.cpt
-
-# ---------------------------------------------------------------------------
-# Download ETOPO terrain grid (only once)
+# Lazy GMT DEM & Hillshade Initialization (only run if Terrain Day is rendered)
 # ---------------------------------------------------------------------------
 ETOPO_NC="$GMT_USERDIR/etopo_world.nc"
-
-if [[ ! -f "$ETOPO_NC" ]]; then
-  echo "Fetching ETOPO terrain grid from GMT server..."
-  # GMT's @earth_relief_10m is the 10 arc-minute global relief model (~17 MB).
-  # For sharper relief at large sizes you can use 05m (5 arc-min, ~65 MB) or
-  # 02m (2 arc-min, ~350 MB) — change the tag below and re-run.
-  gmt grdcut @earth_relief_10m -R-180/180/-90/90 -G"$ETOPO_NC" \
-    || { echo "gmt earth_relief download failed — check internet / GMT data server" >&2; exit 1; }
-  echo "  Terrain grid saved: $ETOPO_NC"
-fi
-
-# ---------------------------------------------------------------------------
-# Pre-compute hillshade (once, at full resolution)
-# ---------------------------------------------------------------------------
-# Technique:
-#   1. Dual-azimuth gradient (-A315/45): NW sun (cartographic convention) +
-#      45 deg catches east-facing slopes too.
-#   2. -Ne0.6 normalises to a well-spread intensity range for grdimage.
-#   3. grdhisteq stretches contrast over the full range so shading looks
-#      punchy even over low-relief abyssal plains.
 SHADE_NC="$GMT_USERDIR/hillshade.nc"
-SHADE_RAW="$GMT_USERDIR/hillshade_raw.nc"
-if [[ ! -f "$SHADE_NC" ]]; then
-  echo "Computing hillshade (dual-azimuth + histogram equalisation)..."
-  gmt grdgradient "$ETOPO_NC" -A315/45 -Ne0.6 -G"$SHADE_RAW"
-  gmt grdhisteq "$SHADE_RAW" -G"$SHADE_NC" -N
-  MAXVAL=$(gmt grdinfo "$SHADE_NC" -C | awk '{print $7}')
-  gmt grdmath "$SHADE_NC" "$MAXVAL" DIV = "$SHADE_NC"
-  rm -f "$SHADE_RAW"
-fi
+
+init_terrain_gmt() {
+  if [[ -f "$GMT_USERDIR/terrain_D.cpt" && -f "$SHADE_NC" && -f "$ETOPO_NC" ]]; then
+    return 0
+  fi
+  echo "Initializing GMT DEM and hillshade data for Terrain Day..."
+  gmt makecpt -C"${TERRAIN_CPT_DAY}" -T-8000/8000 -Z > "$GMT_USERDIR/terrain_D.cpt"
+
+  if [[ ! -f "$ETOPO_NC" ]]; then
+    echo "Fetching ETOPO terrain grid from GMT server..."
+    # GMT's @earth_relief_10m is the 10 arc-minute global relief model (~17 MB).
+    gmt grdcut @earth_relief_10m -R-180/180/-90/90 -G"$ETOPO_NC" \
+      || { echo "gmt earth_relief download failed — check internet / GMT data server" >&2; exit 1; }
+    echo "  Terrain grid saved: $ETOPO_NC"
+  fi
+
+  SHADE_RAW="$GMT_USERDIR/hillshade_raw.nc"
+  if [[ ! -f "$SHADE_NC" ]]; then
+    echo "Computing hillshade (dual-azimuth + histogram equalisation)..."
+    gmt grdgradient "$ETOPO_NC" -A315/45 -Ne0.6 -G"$SHADE_RAW"
+    gmt grdhisteq "$SHADE_RAW" -G"$SHADE_NC" -N
+    MAXVAL=$(gmt grdinfo "$SHADE_NC" -C | awk '{print $7}')
+    gmt grdmath "$SHADE_NC" "$MAXVAL" DIV = "$SHADE_NC"
+    rm -f "$SHADE_RAW"
+    echo "  Hillshade precomputed: $SHADE_NC"
+  fi
+}
 
 # ===========================================================================
 #  LOOP: map types x day/night x sizes
@@ -230,46 +242,135 @@ for DN in "${FILTER_DN[@]}"; do
     W=${SZ%x*}
     H=${SZ#*x}
 
-    # Render at 2x then downscale (same logic as aurora script)
-    MAX_RENDER=7000
-    if (( W * 2 > MAX_RENDER )); then
-      RENDER_W=$W
-      RENDER_H=$H
-    else
-      RENDER_W=$((W * 2))
-      RENDER_H=$((H * 2))
-    fi
-
-    BASE="$GMT_USERDIR/${MAPTYPE}_${DN}_${SZ}"
-    PS="${BASE}.ps"
-    PNG="${BASE}.png"
-    PNG_FIXED="${BASE}_fixed.png"
     BMP="$OUTDIR/map-${DN}-${SZ}-${MAPTYPE}.bmp"
+    BMP_Z="${BMP}.z"
 
-    echo "  -> ${DN} ${SZ} (render ${RENDER_W}x${RENDER_H})"
+    # 1. Preservation check
+    if [[ -f "$BMP" && -f "$BMP_Z" && "$FORCE" != "true" ]]; then
+      echo "  -> Preserving existing ${MAPTYPE} ${DN} map: $BMP"
+      continue
+    fi
+
+    echo "  -> Generating ${MAPTYPE} ${DN} ${SZ}..."
 
     # -----------------------------------------------------------------
-    # Countries: preserve multi-color political maps & derive colorful night
+    # 2. PHYSICAL MAP (Natural Earth land cover & NASA city lights)
     # -----------------------------------------------------------------
-    if [[ "$MAPTYPE" == "Countries" && "$DN" == "D" && -f "$BMP" ]]; then
-      echo "  -> Preserving existing multi-color political Countries Day map: $BMP"
+    if [[ "$MAPTYPE" == "Physical" ]]; then
+      python3 - <<'PY' "$DN" "$SZ" "$BMP" "$BMP_Z" "$OUTDIR"
+import os, sys, zlib, struct, subprocess
+from io import BytesIO
+from PIL import Image
+
+DN, SZ, out_bmp, out_z, outdir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+W, H = map(int, SZ.split("x"))
+
+def write_bmp(img, bmp_path, z_path):
+    raw = img.tobytes()
+    row_bytes = W * 2
+    pad = (4 - (row_bytes % 4)) % 4
+    image_size = (row_bytes + pad) * H
+    bfSize = 14 + 108 + image_size
+    filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, 14 + 108)
+    v4hdr = struct.pack(
+        "<IiiHHIIIIII",
+        108, W, -H, 1, 16, 3, image_size, 0, 0, 0, 0
+    ) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
+      + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
+
+    pix = bytearray(image_size)
+    di, oi = 0, 0
+    for y in range(H):
+        for x in range(W):
+            r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
+            v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+            pix[oi] = v & 0xFF
+            pix[oi+1] = (v >> 8) & 0xFF
+            oi += 2
+        oi += pad
+
+    bmp_data = filehdr + v4hdr + bytes(pix)
+    with open(bmp_path, "wb") as f:
+        f.write(bmp_data)
+    with open(z_path, "wb") as f:
+        f.write(zlib.compress(bmp_data, 9))
+
+# 1. Search in outdir for existing physical maps to downscale from
+src_img = None
+ALL_SIZES_REV = ["7920x3960", "5940x2970", "5280x2640", "3960x1980", "2640x1320", "1980x990", "1320x660", "660x330"]
+for msz in ALL_SIZES_REV:
+    mbmp = os.path.join(outdir, f"map-{DN}-{msz}-Physical.bmp")
+    mz = os.path.join(outdir, f"map-{DN}-{msz}-Physical.bmp.z")
+    if os.path.isfile(mbmp):
+        src_img = Image.open(mbmp).convert("RGB")
+        break
+    if os.path.isfile(mz):
+        src_img = Image.open(BytesIO(zlib.decompress(open(mz, "rb").read()))).convert("RGB")
+        break
+
+# 2. Check local tarballs if not found in outdir
+if src_img is None:
+    tar_candidates = [
+        "docker/ohb-maps.tar.zst",
+        "/opt/hamclock-backend/docker/ohb-maps.tar.zst",
+        os.path.expanduser("~/devel/open-hamclock-backend/docker/ohb-maps.tar.zst"),
+    ]
+    for tc in tar_candidates:
+        if os.path.isfile(tc):
+            try:
+                raw = subprocess.check_output(["tar", "--zstd", "-xOf", tc, f"maps/map-{DN}-{SZ}-Physical.bmp"], stderr=subprocess.DEVNULL)
+                src_img = Image.open(BytesIO(raw)).convert("RGB")
+                break
+            except Exception:
+                try:
+                    raw = subprocess.check_output(["tar", "--zstd", "-xOf", tc, f"maps/map-{DN}-2640x1320-Physical.bmp"], stderr=subprocess.DEVNULL)
+                    src_img = Image.open(BytesIO(raw)).convert("RGB")
+                    break
+                except Exception:
+                    pass
+
+# 3. Fallback: download from maps-v3 GitHub release
+if src_img is None:
+    import urllib.request, zstandard, tarfile
+    url = "https://github.com/openhamclock/open-hamclock-backend/releases/download/maps-v3/ohb-maps.tar.zst"
+    print(f"Fetching source Physical map from {url}...")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    resp = urllib.request.urlopen(req, timeout=60)
+    dctx = zstandard.ZstdDecompressor()
+    with dctx.stream_reader(resp) as reader:
+        with tarfile.open(fileobj=reader, mode="r|") as tar:
+            for member in tar:
+                if member.name == f"maps/map-{DN}-{SZ}-Physical.bmp" or member.name == f"maps/map-{DN}-2640x1320-Physical.bmp":
+                    src_img = Image.open(BytesIO(tar.extractfile(member).read())).convert("RGB")
+                    break
+
+if src_img is None:
+    raise RuntimeError(f"Could not locate or download source Physical map for {DN} {SZ}")
+
+if src_img.size != (W, H):
+    src_img = src_img.resize((W, H), Image.LANCZOS)
+
+write_bmp(src_img, out_bmp, out_z)
+PY
+      chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+      echo "  -> Done: $BMP  (+${BMP}.z)"
       continue
     fi
 
     # -----------------------------------------------------------------
-    # Terrain: preserve authentic Terrain Night maps (with city lights)
+    # 3. COUNTRIES NIGHT (calibrated from Countries Day)
     # -----------------------------------------------------------------
-    if [[ "$MAPTYPE" == "Terrain" && "$DN" == "N" && -f "$BMP" ]]; then
-      echo "  -> Preserving existing Terrain Night map (with city lights): $BMP"
-      continue
-    fi
-
     if [[ "$MAPTYPE" == "Countries" && "$DN" == "N" ]]; then
       DAY_BMP="$OUTDIR/map-D-${SZ}-Countries.bmp"
       DAY_Z="$OUTDIR/map-D-${SZ}-Countries.bmp.z"
-      if [[ -f "$DAY_BMP" || -f "$DAY_Z" ]]; then
-        echo "  -> Deriving colorful night map from $DAY_BMP"
-        python3 - <<'PY' "$DAY_BMP" "$DAY_Z" "$BMP" "${BMP}.z" "$W" "$H"
+
+      if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
+        echo "  -> Generating prerequisite Countries Day map: $DAY_BMP"
+        "$SCRIPT_PATH" "$SZ" --type Countries --day
+      fi
+
+      echo "  -> Deriving calibrated Countries Night from $DAY_BMP"
+      python3 - <<'PY' "$DAY_BMP" "$DAY_Z" "$BMP" "${BMP}.z" "$W" "$H"
 import sys, os, zlib, struct
 from io import BytesIO
 from PIL import Image, ImageEnhance
@@ -300,9 +401,8 @@ v4hdr = struct.pack(
 ) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
   + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
 
-pix = bytearray((row_bytes + pad) * H)
-di = 0
-oi = 0
+pix = bytearray(image_size)
+di, oi = 0, 0
 for y in range(H):
     for x in range(W):
         r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
@@ -318,13 +418,300 @@ with open(out_bmp, "wb") as f:
 with open(out_z, "wb") as f:
     f.write(zlib.compress(bmp_data, 9))
 PY
-        chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
-        echo "  -> Done: $BMP  (+${BMP}.z)"
+      chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+      echo "  -> Done: $BMP  (+${BMP}.z)"
+      continue
+    fi
+
+    # -----------------------------------------------------------------
+    # 4. TERRAIN NIGHT (calibrated relief + city lights)
+    # -----------------------------------------------------------------
+    if [[ "$MAPTYPE" == "Terrain" && "$DN" == "N" ]]; then
+      DAY_BMP="$OUTDIR/map-D-${SZ}-Terrain.bmp"
+      DAY_Z="$OUTDIR/map-D-${SZ}-Terrain.bmp.z"
+      PHYS_N_BMP="$OUTDIR/map-N-${SZ}-Physical.bmp"
+      PHYS_N_Z="$OUTDIR/map-N-${SZ}-Physical.bmp.z"
+
+      if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
+        echo "  -> Generating prerequisite Terrain Day map: $DAY_BMP"
+        "$SCRIPT_PATH" "$SZ" --type Terrain --day
+      fi
+
+      if [[ ! -f "$PHYS_N_BMP" && ! -f "$PHYS_N_Z" ]]; then
+        echo "  -> Generating prerequisite Physical Night map for city lights: $PHYS_N_BMP"
+        "$SCRIPT_PATH" "$SZ" --type Physical --night
+      fi
+
+      echo "  -> Compositing Terrain Night (calibrated topography relief + city lights)..."
+      python3 - <<'PY' "$DAY_BMP" "$DAY_Z" "$PHYS_N_BMP" "$PHYS_N_Z" "$BMP" "${BMP}.z" "$W" "$H"
+import sys, os, zlib, struct
+from io import BytesIO
+from PIL import Image, ImageFilter
+import numpy as np
+
+day_bmp, day_z, phys_bmp, phys_z, out_bmp, out_z, W, H = (
+    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], int(sys.argv[7]), int(sys.argv[8])
+)
+
+def load_img(b, z):
+    if os.path.isfile(b):
+        return Image.open(b).convert("RGB")
+    if os.path.isfile(z):
+        return Image.open(BytesIO(zlib.decompress(open(z, "rb").read()))).convert("RGB")
+    return None
+
+day_img = load_img(day_bmp, day_z)
+phys_img = load_img(phys_bmp, phys_z)
+
+if day_img.size != (W, H):
+    day_img = day_img.resize((W, H), Image.LANCZOS)
+if phys_img.size != (W, H):
+    phys_img = phys_img.resize((W, H), Image.LANCZOS)
+
+day_arr = np.array(day_img, dtype=float)
+phys_arr = np.array(phys_img, dtype=float)
+
+# Ocean mask: where lights are pure black (0,0,0)
+ocean_mask = (phys_arr[:,:,0] == 0) & (phys_arr[:,:,1] == 0) & (phys_arr[:,:,2] == 0)
+
+# Calibrated topography relief: 0.22 brightness, pure black oceans
+terrain_22 = day_arr * 0.22
+terrain_22[ocean_mask] = 0.0
+
+# Isolate city lights above background noise
+native_lights = np.clip((phys_arr - 25) * 1.8, 0, 255).astype(np.uint8)
+
+if W >= 1980:
+    dilated = np.array(Image.fromarray(native_lights).filter(ImageFilter.MaxFilter(3)), dtype=float)
+    glow = np.array(Image.fromarray(native_lights).resize((660, 330), Image.BILINEAR).resize((W, H), Image.BICUBIC), dtype=float)
+    city_lights = np.clip(dilated * 0.7 + glow * 0.8, 0, 255)
+else:
+    city_lights = np.array(native_lights, dtype=float)
+
+city_lights[ocean_mask] = 0.0
+
+final_arr = np.clip(terrain_22 + city_lights, 0, 255).astype(np.uint8)
+final_img = Image.fromarray(final_arr)
+
+# Write BMP v4 RGB565 top-down + .bmp.z
+raw = final_img.tobytes()
+row_bytes = W * 2
+pad = (4 - (row_bytes % 4)) % 4
+image_size = (row_bytes + pad) * H
+bfSize = 14 + 108 + image_size
+filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, 14 + 108)
+v4hdr = struct.pack(
+    "<IiiHHIIIIII",
+    108, W, -H, 1, 16, 3, image_size, 0, 0, 0, 0
+) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
+  + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
+
+pix = bytearray(image_size)
+di, oi = 0, 0
+for y in range(H):
+    for x in range(W):
+        r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
+        v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        pix[oi] = v & 0xFF
+        pix[oi+1] = (v >> 8) & 0xFF
+        oi += 2
+    oi += pad
+
+bmp_data = filehdr + v4hdr + bytes(pix)
+with open(out_bmp, "wb") as f:
+    f.write(bmp_data)
+with open(out_z, "wb") as f:
+    f.write(zlib.compress(bmp_data, 9))
+PY
+      chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+      echo "  -> Done: $BMP  (+${BMP}.z)"
+      continue
+    fi
+
+    # -----------------------------------------------------------------
+    # 5. COUNTRIES DAY (Downscale master political map or render GMT)
+    # -----------------------------------------------------------------
+    if [[ "$MAPTYPE" == "Countries" && "$DN" == "D" ]]; then
+      # Check if master political map exists to downscale
+      MASTER_FOUND=false
+      ALL_SIZES_REV=("7920x3960" "5940x2970" "5280x2640" "3960x1980" "2640x1320" "1980x990" "1320x660")
+      for MSZ in "${ALL_SIZES_REV[@]}"; do
+        if [[ -f "$OUTDIR/map-D-${MSZ}-Countries.bmp" || -f "$OUTDIR/map-D-${MSZ}-Countries.bmp.z" ]]; then
+          python3 - <<'PY' "$OUTDIR/map-D-${MSZ}-Countries.bmp" "$OUTDIR/map-D-${MSZ}-Countries.bmp.z" "$BMP" "$BMP_Z" "$W" "$H"
+import sys, os, zlib, struct
+from io import BytesIO
+from PIL import Image
+
+src_bmp, src_z, out_bmp, out_z, W, H = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6])
+if os.path.isfile(src_bmp):
+    img = Image.open(src_bmp).convert("RGB")
+else:
+    img = Image.open(BytesIO(zlib.decompress(open(src_z, "rb").read()))).convert("RGB")
+
+if img.size != (W, H):
+    img = img.resize((W, H), Image.LANCZOS)
+
+raw = img.tobytes()
+row_bytes = W * 2
+pad = (4 - (row_bytes % 4)) % 4
+image_size = (row_bytes + pad) * H
+bfSize = 14 + 108 + image_size
+filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, 14 + 108)
+v4hdr = struct.pack(
+    "<IiiHHIIIIII",
+    108, W, -H, 1, 16, 3, image_size, 0, 0, 0, 0
+) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
+  + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
+
+pix = bytearray(image_size)
+di, oi = 0, 0
+for y in range(H):
+    for x in range(W):
+        r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
+        v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        pix[oi] = v & 0xFF
+        pix[oi+1] = (v >> 8) & 0xFF
+        oi += 2
+    oi += pad
+
+bmp_data = filehdr + v4hdr + bytes(pix)
+with open(out_bmp, "wb") as f:
+    f.write(bmp_data)
+with open(out_z, "wb") as f:
+    f.write(zlib.compress(bmp_data, 9))
+PY
+          chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+          echo "  -> Done (downscaled from ${MSZ}): $BMP  (+${BMP}.z)"
+          MASTER_FOUND=true
+          break
+        fi
+      done
+      if [[ "$MASTER_FOUND" == "false" ]]; then
+        # Check tarball for Countries Day
+        tar_candidates=(
+          "docker/ohb-maps.tar.zst"
+          "/opt/hamclock-backend/docker/ohb-maps.tar.zst"
+          "${SCRIPT_DIR}/../../docker/ohb-maps.tar.zst"
+        )
+        for tc in "${tar_candidates[@]}"; do
+          if [[ -f "$tc" ]]; then
+            tar --zstd -xOf "$tc" "maps/map-D-${SZ}-Countries.bmp" > "$BMP" 2>/dev/null || true
+            if [[ -s "$BMP" ]]; then
+              zlib_compress "$BMP" "$BMP_Z"
+              chmod 0644 "$BMP" "$BMP_Z" 2>/dev/null || true
+              echo "  -> Done (extracted from $tc): $BMP  (+${BMP_Z})"
+              MASTER_FOUND=true
+              break
+            fi
+          fi
+        done
+      fi
+      if [[ "$MASTER_FOUND" == "true" ]]; then
         continue
       fi
     fi
 
-    # Per-size GMT config dir (avoids concurrent write collisions)
+    # -----------------------------------------------------------------
+    # 5b. TERRAIN DAY (Downscale master relief map if GMT not available or master found)
+    # -----------------------------------------------------------------
+    if [[ "$MAPTYPE" == "Terrain" && "$DN" == "D" ]]; then
+      if ! which gmt >/dev/null 2>&1; then
+        echo "  -> GMT not installed; searching for master Terrain Day map or release archive..."
+        MASTER_FOUND=false
+        ALL_SIZES_REV=("7920x3960" "5940x2970" "5280x2640" "3960x1980" "2640x1320" "1980x990" "1320x660")
+        for MSZ in "${ALL_SIZES_REV[@]}"; do
+          if [[ -f "$OUTDIR/map-D-${MSZ}-Terrain.bmp" || -f "$OUTDIR/map-D-${MSZ}-Terrain.bmp.z" ]]; then
+            python3 - <<'PY' "$OUTDIR/map-D-${MSZ}-Terrain.bmp" "$OUTDIR/map-D-${MSZ}-Terrain.bmp.z" "$BMP" "$BMP_Z" "$W" "$H"
+import sys, os, zlib, struct
+from io import BytesIO
+from PIL import Image
+
+src_bmp, src_z, out_bmp, out_z, W, H = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6])
+if os.path.isfile(src_bmp):
+    img = Image.open(src_bmp).convert("RGB")
+else:
+    img = Image.open(BytesIO(zlib.decompress(open(src_z, "rb").read()))).convert("RGB")
+
+if img.size != (W, H):
+    img = img.resize((W, H), Image.LANCZOS)
+
+raw = img.tobytes()
+row_bytes = W * 2
+pad = (4 - (row_bytes % 4)) % 4
+image_size = (row_bytes + pad) * H
+bfSize = 14 + 108 + image_size
+filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, 14 + 108)
+v4hdr = struct.pack(
+    "<IiiHHIIIIII",
+    108, W, -H, 1, 16, 3, image_size, 0, 0, 0, 0
+) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
+  + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
+
+pix = bytearray(image_size)
+di, oi = 0, 0
+for y in range(H):
+    for x in range(W):
+        r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
+        v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        pix[oi] = v & 0xFF
+        pix[oi+1] = (v >> 8) & 0xFF
+        oi += 2
+    oi += pad
+
+bmp_data = filehdr + v4hdr + bytes(pix)
+with open(out_bmp, "wb") as f:
+    f.write(bmp_data)
+with open(out_z, "wb") as f:
+    f.write(zlib.compress(bmp_data, 9))
+PY
+            chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+            echo "  -> Done (downscaled from ${MSZ}): $BMP  (+${BMP}.z)"
+            MASTER_FOUND=true
+            break
+          fi
+        done
+        if [[ "$MASTER_FOUND" == "false" ]]; then
+          tar_candidates=(
+            "docker/ohb-maps.tar.zst"
+            "/opt/hamclock-backend/docker/ohb-maps.tar.zst"
+            "${SCRIPT_DIR}/../../docker/ohb-maps.tar.zst"
+          )
+          for tc in "${tar_candidates[@]}"; do
+            if [[ -f "$tc" ]]; then
+              tar --zstd -xOf "$tc" "maps/map-D-${SZ}-Terrain.bmp" > "$BMP" 2>/dev/null || true
+              if [[ -s "$BMP" ]]; then
+                zlib_compress "$BMP" "$BMP_Z"
+                chmod 0644 "$BMP" "$BMP_Z" 2>/dev/null || true
+                echo "  -> Done (extracted from $tc): $BMP  (+${BMP_Z})"
+                MASTER_FOUND=true
+                break
+              fi
+            fi
+          done
+        fi
+        if [[ "$MASTER_FOUND" == "true" ]]; then
+          continue
+        fi
+      fi
+    fi
+
+    # -----------------------------------------------------------------
+    # 6. GMT VECTOR / DEM RENDERING (Terrain Day & fallback Countries Day)
+    # -----------------------------------------------------------------
+    MAX_RENDER=7000
+    if (( W * 2 > MAX_RENDER )); then
+      RENDER_W=$W
+      RENDER_H=$H
+    else
+      RENDER_W=$((W * 2))
+      RENDER_H=$((H * 2))
+    fi
+
+    BASE="$GMT_USERDIR/${MAPTYPE}_${DN}_${SZ}"
+    PS="${BASE}.ps"
+    PNG="${BASE}.png"
+    PNG_FIXED="${BASE}_fixed.png"
+
     GMT_CONF="$GMT_USERDIR/gmtconf_${MAPTYPE}_${DN}_${SZ}"
     mkdir -p "$GMT_CONF"
     GMT_USERDIR="$GMT_CONF" gmt set \
@@ -332,25 +719,14 @@ PY
       MAP_ORIGIN_X 0c \
       MAP_ORIGIN_Y 0c
 
-    # -----------------------------------------------------------------
-    # Build PostScript — different pipeline per map type
-    # -----------------------------------------------------------------
     (
       cd "$GMT_USERDIR" || exit 1
 
       if [[ "$MAPTYPE" == "Countries" ]]; then
-        # ---------------------------------------------------------------
-        # Countries map
-        # Day & Night share the same cartographic vector base:
-        # blue ocean, muted-green land, white borders + country borders.
-        # Night is dimmed by 0.48 in make_bmp_v4_rgb565_topdown (MUF-RT model)
-        # so the solar terminator is clear while all details remain fully legible.
-        # ---------------------------------------------------------------
         OCEAN="30/100/200"           # medium blue
         LAND="100/140/70"            # muted green
         BORDER_W="1.0p,white"        # coastlines
         CBORDER="0.4p,200/200/200"   # country borders
-        NBORDER="0.8p,white"         # national borders (coastline weight)
 
         GMT_USERDIR="$GMT_CONF" \
           gmt pscoast \
@@ -360,7 +736,6 @@ PY
             --MAP_FRAME_AXES=WSne \
             -P -K > "$PS"
 
-        # Country political borders (borders level 1 = national)
         GMT_USERDIR="$GMT_CONF" \
           gmt pscoast \
             -R-180/180/-90/90 -JQ0/${RENDER_W}p \
@@ -373,17 +748,14 @@ PY
         gmt psxy -R -J -T -O >> "$PS"
 
       else
-        # ---------------------------------------------------------------
-        # Terrain / Relief map
-        # Day & Night use hypsometric tint + hillshade + crisp borders.
-        # Night is dimmed by 0.48 in make_bmp_v4_rgb565_topdown (MUF-RT model).
-        # ---------------------------------------------------------------
+        # Terrain Day: ETOPO hypsometric relief + hillshade + borders
+        init_terrain_gmt
+
         CPT="$GMT_USERDIR/terrain_D.cpt"
-        INTENSITY="-I${GMT_USERDIR}/hillshade.nc"
+        INTENSITY="-I${SHADE_NC}"
         COAST_W="0.8p,white"
         BORDER_C="0.4p,200/200/200"
 
-        # Base: filled coast (ocean colour from CPT bottom)
         GMT_USERDIR="$GMT_CONF" \
           gmt pscoast \
             -R-180/180/-90/90 -JQ0/${RENDER_W}p \
@@ -392,7 +764,6 @@ PY
             --MAP_FRAME_AXES=WSne \
             -P -K > "$PS"
 
-        # Terrain grid image (hypsometric + hillshade)
         GMT_USERDIR="$GMT_CONF" \
           gmt grdimage "$ETOPO_NC" \
             -R-180/180/-90/90 -JQ0/${RENDER_W}p \
@@ -402,7 +773,6 @@ PY
             --MAP_FRAME_AXES= \
             -O -K >> "$PS"
 
-        # Coastlines + country borders on top
         GMT_USERDIR="$GMT_CONF" \
           gmt pscoast \
             -R-180/180/-90/90 -JQ0/${RENDER_W}p \
@@ -414,12 +784,11 @@ PY
 
         gmt psxy -R -J -T -O >> "$PS"
       fi
-
     ) || { echo "  GMT failed for ${MAPTYPE} ${DN} $SZ" >&2; continue; }
 
     render_ps_to_bmp \
       "$PS" "$PNG" "$PNG_FIXED" "$BMP" \
-      "$RENDER_W" "$RENDER_H" "$W" "$H" "$SZ" "$DN" \
+      "$RENDER_W" "$RENDER_H" "$W" "$H" "$SZ" \
       || continue
 
     echo "  -> Done: $BMP  (+${BMP}.z)"
