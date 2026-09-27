@@ -63,6 +63,7 @@ SIZES=()
 FILTER_TYPES=()
 FILTER_DN=()
 FORCE=false
+RECOMPUTE=false
 i=1
 while [[ $i -le $# ]]; do
   arg="${!i}"
@@ -73,9 +74,11 @@ while [[ $i -le $# ]]; do
     --day)   FILTER_DN+=("D") ;;
     --night) FILTER_DN+=("N") ;;
     --force) FORCE=true ;;
+    --recompute) RECOMPUTE=true ;;
     --cpt)
       i=$(( i+1 ))
-      TERRAIN_CPT_DAY="${!i}" ;;
+      TERRAIN_CPT_DAY="${!i}"
+      RECOMPUTE=true ;;
     *x*)     SIZES+=("$arg") ;;
     *)       echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -253,8 +256,34 @@ for DN in "${FILTER_DN[@]}"; do
 
     echo "  -> Generating ${MAPTYPE} ${DN} ${SZ}..."
 
+    # 2. Extract exact pre-built artifact from release archive if available
+    if [[ "$RECOMPUTE" != "true" ]]; then
+      TAR_CANDIDATES=(
+        "docker/ohb-maps.tar.zst"
+        "/opt/hamclock-backend/docker/ohb-maps.tar.zst"
+        "${SCRIPT_DIR}/../../docker/ohb-maps.tar.zst"
+      )
+      EXTRACTED=false
+      for tc in "${TAR_CANDIDATES[@]}"; do
+        if [[ -f "$tc" ]]; then
+          if tar --zstd -xOf "$tc" "maps/map-${DN}-${SZ}-${MAPTYPE}.bmp" > "$BMP" 2>/dev/null; then
+            if [[ -s "$BMP" ]]; then
+              tar --zstd -xOf "$tc" "maps/map-${DN}-${SZ}-${MAPTYPE}.bmp.z" > "$BMP_Z" 2>/dev/null || zlib_compress "$BMP" "$BMP_Z"
+              chmod 0644 "$BMP" "$BMP_Z" 2>/dev/null || true
+              echo "  -> Extracted exact match from $tc: $BMP (+${BMP_Z})"
+              EXTRACTED=true
+              break
+            fi
+          fi
+        fi
+      done
+      if [[ "$EXTRACTED" == "true" ]]; then
+        continue
+      fi
+    fi
+
     # -----------------------------------------------------------------
-    # 2. PHYSICAL MAP (Natural Earth land cover & NASA city lights)
+    # 3. PHYSICAL MAP (Natural Earth land cover & NASA city lights)
     # -----------------------------------------------------------------
     if [[ "$MAPTYPE" == "Physical" ]]; then
       python3 - <<'PY' "$DN" "$SZ" "$BMP" "$BMP_Z" "$OUTDIR"
@@ -295,10 +324,13 @@ def write_bmp(img, bmp_path, z_path):
     with open(z_path, "wb") as f:
         f.write(zlib.compress(bmp_data, 9))
 
-# 1. Search in outdir for existing physical maps to downscale from
+# 1. Search in outdir for a larger master physical map to downscale from
 src_img = None
 ALL_SIZES_REV = ["7920x3960", "5940x2970", "5280x2640", "3960x1980", "2640x1320", "1980x990", "1320x660", "660x330"]
 for msz in ALL_SIZES_REV:
+    mW, mH = map(int, msz.split("x"))
+    if mW < W or mH < H:
+        continue
     mbmp = os.path.join(outdir, f"map-{DN}-{msz}-Physical.bmp")
     mz = os.path.join(outdir, f"map-{DN}-{msz}-Physical.bmp.z")
     if os.path.isfile(mbmp):
