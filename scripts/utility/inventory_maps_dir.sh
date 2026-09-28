@@ -8,7 +8,7 @@ declare -A seen
 while read -r f; do
   base=$(basename "$f")
 
-  if [[ $base =~ map-([DN])-([0-9]+x[0-9]+)-(Countries|Terrain)\.bmp(\.z)? ]]; then
+  if [[ $base =~ map-([DN])-([0-9]+x[0-9]+)-(Countries|Terrain|Physical)\.bmp(\.z)? ]]; then
     DORN=${BASH_REMATCH[1]}
     RES=${BASH_REMATCH[2]}
     TYPE=${BASH_REMATCH[3]}
@@ -24,7 +24,7 @@ missing=0
 
 for r in $resolutions; do
   for dn in D N; do
-    for t in Countries Terrain; do
+    for t in Countries Terrain Physical; do
       k="$r:$dn:$t"
       if [[ -z "${seen[$k]}" ]]; then
         echo "MISSING: map-$dn-$r-$t"

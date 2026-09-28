@@ -79,6 +79,10 @@ while [[ $i -le $# ]]; do
       i=$(( i+1 ))
       TERRAIN_CPT_DAY="${!i}"
       RECOMPUTE=true ;;
+    --phys-night-dim)
+      i=$(( i+1 ))
+      PHYSICAL_NIGHT_BRIGHTNESS="${!i}"
+      RECOMPUTE=true ;;
     *x*)     SIZES+=("$arg") ;;
     *)       echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -94,11 +98,16 @@ done
 # Available GMT built-ins worth trying: geo srtm dem1 dem2 etopo1 relief globe
 TERRAIN_CPT_DAY="${TERRAIN_CPT_DAY:-geo}"
 
+# Physical Night land cover brightness factor (default 0.20 for subtle nighttime terrain visibility)
+# Override with --phys-night-dim <factor> (e.g. 0.18, 0.20, 0.22)
+PHYSICAL_NIGHT_BRIGHTNESS="${PHYSICAL_NIGHT_BRIGHTNESS:-0.20}"
+
 echo "Sizes   : ${SIZES[*]}"
 echo "Types   : ${FILTER_TYPES[*]}"
 echo "Variants: ${FILTER_DN[*]}"
 echo "Force   : ${FORCE}"
 echo "CPT day : ${TERRAIN_CPT_DAY}"
+echo "Phys dim: ${PHYSICAL_NIGHT_BRIGHTNESS}"
 echo "Outdir  : ${OUTDIR}"
 
 # ---------------------------------------------------------------------------
@@ -232,6 +241,53 @@ init_terrain_gmt() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Raw NASA City Lights Retrieval & Local Cache
+# ---------------------------------------------------------------------------
+ensure_raw_city_lights() {
+  local sz="$1"
+  local target="$GMT_USERDIR/city_lights_${sz}.bmp"
+  if [[ -f "$target" && -s "$target" ]]; then
+    return 0
+  fi
+  local tc_candidates=(
+    "docker/ohb-maps.tar.zst"
+    "/opt/hamclock-backend/docker/ohb-maps.tar.zst"
+    "${SCRIPT_DIR}/../../docker/ohb-maps.tar.zst"
+  )
+  for tc in "${tc_candidates[@]}"; do
+    if [[ -f "$tc" ]]; then
+      tar --zstd -xOf "$tc" "maps/map-N-${sz}-Physical.bmp" > "$target" 2>/dev/null || true
+      if [[ -s "$target" ]]; then
+        return 0
+      fi
+      tar --zstd -xOf "$tc" "maps/map-N-2640x1320-Physical.bmp" > "$target" 2>/dev/null || true
+      if [[ -s "$target" ]]; then
+        return 0
+      fi
+    fi
+  done
+  echo "  -> Fetching source NASA city lights for ${sz} from GitHub release..."
+  python3 - <<PY "$sz" "$target"
+import sys, urllib.request, zstandard, tarfile
+sz, target = sys.argv[1], sys.argv[2]
+url = "https://github.com/openhamclock/open-hamclock-backend/releases/download/maps-v3/ohb-maps.tar.zst"
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+resp = urllib.request.urlopen(req, timeout=60)
+dctx = zstandard.ZstdDecompressor()
+with dctx.stream_reader(resp) as reader:
+    with tarfile.open(fileobj=reader, mode="r|") as tar:
+        for member in tar:
+            if member.name in (f"maps/map-N-{sz}-Physical.bmp", "maps/map-N-2640x1320-Physical.bmp"):
+                with open(target, "wb") as f:
+                    f.write(tar.extractfile(member).read())
+                break
+PY
+  [[ -s "$target" ]] && return 0
+  echo "  Warning: could not locate source NASA city lights for ${sz}" >&2
+  return 1
+}
+
 # ===========================================================================
 #  LOOP: map types x day/night x sizes
 # ===========================================================================
@@ -257,35 +313,39 @@ for DN in "${FILTER_DN[@]}"; do
     echo "  -> Generating ${MAPTYPE} ${DN} ${SZ}..."
 
     # 2. Extract exact pre-built artifact from release archive if available
-    if [[ "$RECOMPUTE" != "true" ]]; then
-      TAR_CANDIDATES=(
-        "docker/ohb-maps.tar.zst"
-        "/opt/hamclock-backend/docker/ohb-maps.tar.zst"
-        "${SCRIPT_DIR}/../../docker/ohb-maps.tar.zst"
-      )
-      EXTRACTED=false
-      for tc in "${TAR_CANDIDATES[@]}"; do
-        if [[ -f "$tc" ]]; then
-          if tar --zstd -xOf "$tc" "maps/map-${DN}-${SZ}-${MAPTYPE}.bmp" > "$BMP" 2>/dev/null; then
-            if [[ -s "$BMP" ]]; then
-              tar --zstd -xOf "$tc" "maps/map-${DN}-${SZ}-${MAPTYPE}.bmp.z" > "$BMP_Z" 2>/dev/null || zlib_compress "$BMP" "$BMP_Z"
-              chmod 0644 "$BMP" "$BMP_Z" 2>/dev/null || true
-              echo "  -> Extracted exact match from $tc: $BMP (+${BMP_Z})"
-              EXTRACTED=true
-              break
+    # Note: map-N-*-Physical in older archives is the raw uncomposited NASA lights source,
+    # so we do not extract it directly as the final Physical Night map.
+    if [[ "$RECOMPUTE" != "true" && "$FORCE" != "true" ]]; then
+      if [[ "$MAPTYPE" != "Physical" || "$DN" != "N" ]]; then
+        TAR_CANDIDATES=(
+          "docker/ohb-maps.tar.zst"
+          "/opt/hamclock-backend/docker/ohb-maps.tar.zst"
+          "${SCRIPT_DIR}/../../docker/ohb-maps.tar.zst"
+        )
+        EXTRACTED=false
+        for tc in "${TAR_CANDIDATES[@]}"; do
+          if [[ -f "$tc" ]]; then
+            if tar --zstd -xOf "$tc" "maps/map-${DN}-${SZ}-${MAPTYPE}.bmp" > "$BMP" 2>/dev/null; then
+              if [[ -s "$BMP" ]]; then
+                tar --zstd -xOf "$tc" "maps/map-${DN}-${SZ}-${MAPTYPE}.bmp.z" > "$BMP_Z" 2>/dev/null || zlib_compress "$BMP" "$BMP_Z"
+                chmod 0644 "$BMP" "$BMP_Z" 2>/dev/null || true
+                echo "  -> Extracted exact match from $tc: $BMP (+${BMP_Z})"
+                EXTRACTED=true
+                break
+              fi
             fi
           fi
+        done
+        if [[ "$EXTRACTED" == "true" ]]; then
+          continue
         fi
-      done
-      if [[ "$EXTRACTED" == "true" ]]; then
-        continue
       fi
     fi
 
     # -----------------------------------------------------------------
-    # 3. PHYSICAL MAP (Natural Earth land cover & NASA city lights)
+    # 3a. PHYSICAL DAY (Natural Earth land cover)
     # -----------------------------------------------------------------
-    if [[ "$MAPTYPE" == "Physical" ]]; then
+    if [[ "$MAPTYPE" == "Physical" && "$DN" == "D" ]]; then
       python3 - <<'PY' "$DN" "$SZ" "$BMP" "$BMP_Z" "$OUTDIR"
 import os, sys, zlib, struct, subprocess
 from io import BytesIO
@@ -394,21 +454,144 @@ x1, x2 = int(W * 0.740), int(W * 0.825)
 y1, y2 = int(H * 0.910), int(H * 0.975)
 arr = np.array(src_img)
 box = arr[y1:y2, x1:x2]
-if DN == "D":
-    mask = (box[:,:,0] < 250) | (box[:,:,1] < 250) | (box[:,:,2] < 250)
-    if np.any(mask):
-        box[mask] = [255, 255, 255]
-        arr[y1:y2, x1:x2] = box
-        src_img = Image.fromarray(arr)
-else:
-    med = np.median(box, axis=(0,1)).astype(np.uint8)
-    mask = (box[:,:,0] > med[0] + 5) | (box[:,:,1] > med[1] + 5)
-    if np.any(mask):
-        box[mask] = med
-        arr[y1:y2, x1:x2] = box
-        src_img = Image.fromarray(arr)
+mask = (box[:,:,0] < 250) | (box[:,:,1] < 250) | (box[:,:,2] < 250)
+if np.any(mask):
+    box[mask] = [255, 255, 255]
+    arr[y1:y2, x1:x2] = box
+    src_img = Image.fromarray(arr)
 
 write_bmp(src_img, out_bmp, out_z)
+PY
+      chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
+      echo "  -> Done: $BMP  (+${BMP}.z)"
+      continue
+    fi
+
+    # -----------------------------------------------------------------
+    # 3b. PHYSICAL NIGHT (calibrated land cover + city lights)
+    # -----------------------------------------------------------------
+    if [[ "$MAPTYPE" == "Physical" && "$DN" == "N" ]]; then
+      DAY_BMP="$OUTDIR/map-D-${SZ}-Physical.bmp"
+      DAY_Z="$OUTDIR/map-D-${SZ}-Physical.bmp.z"
+      LIGHTS_BMP="$GMT_USERDIR/city_lights_${SZ}.bmp"
+
+      if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
+        for _d in "/opt/hamclock-backend/htdocs/ham/HamClock/maps" "/var/www/html/ham/HamClock/maps" "${SCRIPT_DIR}/../../htdocs/ham/HamClock/maps"; do
+          if [[ -f "$_d/map-D-${SZ}-Physical.bmp" || -f "$_d/map-D-${SZ}-Physical.bmp.z" ]]; then
+            cp "$_d/map-D-${SZ}-Physical.bmp"* "$OUTDIR/" 2>/dev/null || true
+            break
+          fi
+        done
+      fi
+      if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
+        echo "  -> Generating prerequisite Physical Day map: $DAY_BMP"
+        "$SCRIPT_PATH" "$SZ" --type Physical --day
+      fi
+
+      ensure_raw_city_lights "$SZ"
+
+      echo "  -> Compositing Physical Night (calibrated land cover + city lights)..."
+      python3 - <<'PY' "$DAY_BMP" "$DAY_Z" "$LIGHTS_BMP" "$BMP" "${BMP}.z" "$W" "$H" "$PHYSICAL_NIGHT_BRIGHTNESS"
+import sys, os, zlib, struct
+from io import BytesIO
+from PIL import Image, ImageFilter
+import numpy as np
+
+day_bmp, day_z, lights_bmp, out_bmp, out_z, W, H, dim_factor_str = (
+    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], int(sys.argv[6]), int(sys.argv[7]), sys.argv[8]
+)
+dim_factor = float(dim_factor_str)
+
+def load_img(b, z):
+    candidates = [b, z]
+    fname_b = os.path.basename(b)
+    fname_z = os.path.basename(z)
+    for d in ["/opt/hamclock-backend/htdocs/ham/HamClock/maps", "/var/www/html/ham/HamClock/maps", os.path.expanduser("~/devel/open-hamclock-backend/htdocs/ham/HamClock/maps")]:
+        candidates.append(os.path.join(d, fname_b))
+        candidates.append(os.path.join(d, fname_z))
+    for c in candidates:
+        if os.path.isfile(c):
+            try:
+                if c.endswith(".z"):
+                    return Image.open(BytesIO(zlib.decompress(open(c, "rb").read()))).convert("RGB")
+                else:
+                    return Image.open(c).convert("RGB")
+            except Exception:
+                pass
+    return None
+
+day_img = load_img(day_bmp, day_z)
+if day_img is None:
+    raise RuntimeError(f"Could not load prerequisite Physical Day map: {day_bmp}")
+if not os.path.isfile(lights_bmp):
+    raise RuntimeError(f"Could not load source NASA city lights: {lights_bmp}")
+
+lights_img = Image.open(lights_bmp).convert("RGB")
+
+if day_img.size != (W, H):
+    day_img = day_img.resize((W, H), Image.LANCZOS)
+if lights_img.size != (W, H):
+    lights_img = lights_img.resize((W, H), Image.LANCZOS)
+
+day_arr = np.array(day_img, dtype=float)
+lights_arr = np.array(lights_img, dtype=float)
+
+# Ocean mask: where NASA city lights source is pure black (0,0,0)
+ocean_mask = (lights_arr[:,:,0] == 0) & (lights_arr[:,:,1] == 0) & (lights_arr[:,:,2] == 0)
+
+# Calibrated physical land cover: dim_factor brightness, pure black oceans
+phys_land = day_arr * dim_factor
+phys_land[ocean_mask] = 0.0
+
+# Isolate city lights above background noise
+native_lights = np.clip((lights_arr - 25) * 1.8, 0, 255).astype(np.uint8)
+
+if W >= 1980:
+    dilated = np.array(Image.fromarray(native_lights).filter(ImageFilter.MaxFilter(3)), dtype=float)
+    glow = np.array(Image.fromarray(native_lights).resize((660, 330), Image.BILINEAR).resize((W, H), Image.BICUBIC), dtype=float)
+    city_lights = np.clip(dilated * 0.7 + glow * 0.8, 0, 255)
+else:
+    city_lights = np.array(native_lights, dtype=float)
+
+city_lights[ocean_mask] = 0.0
+
+# Zero out any spurious lights/watermark artifacts in East Antarctica interior
+x1, x2 = int(W * 0.740), int(W * 0.825)
+y1, y2 = int(H * 0.910), int(H * 0.975)
+city_lights[y1:y2, x1:x2] = 0.0
+
+final_arr = np.clip(phys_land + city_lights, 0, 255).astype(np.uint8)
+final_img = Image.fromarray(final_arr)
+
+# Write BMP v4 RGB565 top-down + .bmp.z
+raw = final_img.tobytes()
+row_bytes = W * 2
+pad = (4 - (row_bytes % 4)) % 4
+image_size = (row_bytes + pad) * H
+bfSize = 14 + 108 + image_size
+filehdr = struct.pack("<2sIHHI", b"BM", bfSize, 0, 0, 14 + 108)
+v4hdr = struct.pack(
+    "<IiiHHIIIIII",
+    108, W, -H, 1, 16, 3, image_size, 0, 0, 0, 0
+) + struct.pack("<IIII", 0xF800, 0x07E0, 0x001F, 0x0000) \
+  + struct.pack("<I", 0x73524742) + (b"\x00" * 36) + (b"\x00" * 12)
+
+pix = bytearray(image_size)
+di, oi = 0, 0
+for y in range(H):
+    for x in range(W):
+        r = raw[di]; g = raw[di+1]; b = raw[di+2]; di += 3
+        v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        pix[oi] = v & 0xFF
+        pix[oi+1] = (v >> 8) & 0xFF
+        oi += 2
+    oi += pad
+
+bmp_data = filehdr + v4hdr + bytes(pix)
+with open(out_bmp, "wb") as f:
+    f.write(bmp_data)
+with open(out_z, "wb") as f:
+    f.write(zlib.compress(bmp_data, 9))
 PY
       chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
       echo "  -> Done: $BMP  (+${BMP}.z)"
@@ -510,8 +693,7 @@ PY
     if [[ "$MAPTYPE" == "Terrain" && "$DN" == "N" ]]; then
       DAY_BMP="$OUTDIR/map-D-${SZ}-Terrain.bmp"
       DAY_Z="$OUTDIR/map-D-${SZ}-Terrain.bmp.z"
-      PHYS_N_BMP="$OUTDIR/map-N-${SZ}-Physical.bmp"
-      PHYS_N_Z="$OUTDIR/map-N-${SZ}-Physical.bmp.z"
+      LIGHTS_BMP="$GMT_USERDIR/city_lights_${SZ}.bmp"
 
       if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
         for _d in "/opt/hamclock-backend/htdocs/ham/HamClock/maps" "/var/www/html/ham/HamClock/maps" "${SCRIPT_DIR}/../../htdocs/ham/HamClock/maps"; do
@@ -526,28 +708,17 @@ PY
         "$SCRIPT_PATH" "$SZ" --type Terrain --day
       fi
 
-      if [[ ! -f "$PHYS_N_BMP" && ! -f "$PHYS_N_Z" ]]; then
-        for _d in "/opt/hamclock-backend/htdocs/ham/HamClock/maps" "/var/www/html/ham/HamClock/maps" "${SCRIPT_DIR}/../../htdocs/ham/HamClock/maps"; do
-          if [[ -f "$_d/map-N-${SZ}-Physical.bmp" || -f "$_d/map-N-${SZ}-Physical.bmp.z" ]]; then
-            cp "$_d/map-N-${SZ}-Physical.bmp"* "$OUTDIR/" 2>/dev/null || true
-            break
-          fi
-        done
-      fi
-      if [[ ! -f "$PHYS_N_BMP" && ! -f "$PHYS_N_Z" ]]; then
-        echo "  -> Generating prerequisite Physical Night map for city lights: $PHYS_N_BMP"
-        "$SCRIPT_PATH" "$SZ" --type Physical --night
-      fi
+      ensure_raw_city_lights "$SZ"
 
       echo "  -> Compositing Terrain Night (calibrated topography relief + city lights)..."
-      python3 - <<'PY' "$DAY_BMP" "$DAY_Z" "$PHYS_N_BMP" "$PHYS_N_Z" "$BMP" "${BMP}.z" "$W" "$H"
+      python3 - <<'PY' "$DAY_BMP" "$DAY_Z" "$LIGHTS_BMP" "$BMP" "${BMP}.z" "$W" "$H"
 import sys, os, zlib, struct
 from io import BytesIO
 from PIL import Image, ImageFilter
 import numpy as np
 
-day_bmp, day_z, phys_bmp, phys_z, out_bmp, out_z, W, H = (
-    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], int(sys.argv[7]), int(sys.argv[8])
+day_bmp, day_z, lights_bmp, out_bmp, out_z, W, H = (
+    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], int(sys.argv[6]), int(sys.argv[7])
 )
 
 def load_img(b, z):
@@ -569,30 +740,30 @@ def load_img(b, z):
     return None
 
 day_img = load_img(day_bmp, day_z)
-phys_img = load_img(phys_bmp, phys_z)
-
 if day_img is None:
     raise RuntimeError(f"Could not load prerequisite Terrain Day map: {day_bmp}")
-if phys_img is None:
-    raise RuntimeError(f"Could not load prerequisite Physical Night map: {phys_bmp}")
+if not os.path.isfile(lights_bmp):
+    raise RuntimeError(f"Could not load source NASA city lights: {lights_bmp}")
+
+lights_img = Image.open(lights_bmp).convert("RGB")
 
 if day_img.size != (W, H):
     day_img = day_img.resize((W, H), Image.LANCZOS)
-if phys_img.size != (W, H):
-    phys_img = phys_img.resize((W, H), Image.LANCZOS)
+if lights_img.size != (W, H):
+    lights_img = lights_img.resize((W, H), Image.LANCZOS)
 
 day_arr = np.array(day_img, dtype=float)
-phys_arr = np.array(phys_img, dtype=float)
+lights_arr = np.array(lights_img, dtype=float)
 
 # Ocean mask: where lights are pure black (0,0,0)
-ocean_mask = (phys_arr[:,:,0] == 0) & (phys_arr[:,:,1] == 0) & (phys_arr[:,:,2] == 0)
+ocean_mask = (lights_arr[:,:,0] == 0) & (lights_arr[:,:,1] == 0) & (lights_arr[:,:,2] == 0)
 
 # Calibrated topography relief: 0.22 brightness, pure black oceans
 terrain_22 = day_arr * 0.22
 terrain_22[ocean_mask] = 0.0
 
 # Isolate city lights above background noise
-native_lights = np.clip((phys_arr - 25) * 1.8, 0, 255).astype(np.uint8)
+native_lights = np.clip((lights_arr - 25) * 1.8, 0, 255).astype(np.uint8)
 
 if W >= 1980:
     dilated = np.array(Image.fromarray(native_lights).filter(ImageFilter.MaxFilter(3)), dtype=float)
