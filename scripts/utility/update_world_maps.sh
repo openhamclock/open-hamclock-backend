@@ -290,6 +290,7 @@ for DN in "${FILTER_DN[@]}"; do
 import os, sys, zlib, struct, subprocess
 from io import BytesIO
 from PIL import Image
+import numpy as np
 
 DN, SZ, out_bmp, out_z, outdir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 W, H = map(int, SZ.split("x"))
@@ -324,20 +325,26 @@ def write_bmp(img, bmp_path, z_path):
     with open(z_path, "wb") as f:
         f.write(zlib.compress(bmp_data, 9))
 
-# 1. Search in outdir for a larger master physical map to downscale from
+# 1. Search in outdir or standard locations for a master physical map to downscale from
 src_img = None
 ALL_SIZES_REV = ["7920x3960", "5940x2970", "5280x2640", "3960x1980", "2640x1320", "1980x990", "1320x660", "660x330"]
-for msz in ALL_SIZES_REV:
-    mW, mH = map(int, msz.split("x"))
-    if mW < W or mH < H:
+search_dirs = [outdir, "/opt/hamclock-backend/htdocs/ham/HamClock/maps", "/var/www/html/ham/HamClock/maps", os.path.expanduser("~/devel/open-hamclock-backend/htdocs/ham/HamClock/maps")]
+for sdir in search_dirs:
+    if not os.path.isdir(sdir):
         continue
-    mbmp = os.path.join(outdir, f"map-{DN}-{msz}-Physical.bmp")
-    mz = os.path.join(outdir, f"map-{DN}-{msz}-Physical.bmp.z")
-    if os.path.isfile(mbmp):
-        src_img = Image.open(mbmp).convert("RGB")
-        break
-    if os.path.isfile(mz):
-        src_img = Image.open(BytesIO(zlib.decompress(open(mz, "rb").read()))).convert("RGB")
+    for msz in ALL_SIZES_REV:
+        mW, mH = map(int, msz.split("x"))
+        if mW < W or mH < H:
+            continue
+        mbmp = os.path.join(sdir, f"map-{DN}-{msz}-Physical.bmp")
+        mz = os.path.join(sdir, f"map-{DN}-{msz}-Physical.bmp.z")
+        if os.path.isfile(mbmp):
+            src_img = Image.open(mbmp).convert("RGB")
+            break
+        if os.path.isfile(mz):
+            src_img = Image.open(BytesIO(zlib.decompress(open(mz, "rb").read()))).convert("RGB")
+            break
+    if src_img is not None:
         break
 
 # 2. Check local tarballs if not found in outdir
@@ -382,6 +389,25 @@ if src_img is None:
 if src_img.size != (W, H):
     src_img = src_img.resize((W, H), Image.LANCZOS)
 
+# Clean any residual watermark in East Antarctica
+x1, x2 = int(W * 0.740), int(W * 0.825)
+y1, y2 = int(H * 0.910), int(H * 0.975)
+arr = np.array(src_img)
+box = arr[y1:y2, x1:x2]
+if DN == "D":
+    mask = (box[:,:,0] < 250) | (box[:,:,1] < 250) | (box[:,:,2] < 250)
+    if np.any(mask):
+        box[mask] = [255, 255, 255]
+        arr[y1:y2, x1:x2] = box
+        src_img = Image.fromarray(arr)
+else:
+    med = np.median(box, axis=(0,1)).astype(np.uint8)
+    mask = (box[:,:,0] > med[0] + 5) | (box[:,:,1] > med[1] + 5)
+    if np.any(mask):
+        box[mask] = med
+        arr[y1:y2, x1:x2] = box
+        src_img = Image.fromarray(arr)
+
 write_bmp(src_img, out_bmp, out_z)
 PY
       chmod 0644 "$BMP" "${BMP}.z" 2>/dev/null || true
@@ -397,6 +423,14 @@ PY
       DAY_Z="$OUTDIR/map-D-${SZ}-Countries.bmp.z"
 
       if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
+        for _d in "/opt/hamclock-backend/htdocs/ham/HamClock/maps" "/var/www/html/ham/HamClock/maps" "${SCRIPT_DIR}/../../htdocs/ham/HamClock/maps"; do
+          if [[ -f "$_d/map-D-${SZ}-Countries.bmp" || -f "$_d/map-D-${SZ}-Countries.bmp.z" ]]; then
+            cp "$_d/map-D-${SZ}-Countries.bmp"* "$OUTDIR/" 2>/dev/null || true
+            break
+          fi
+        done
+      fi
+      if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
         echo "  -> Generating prerequisite Countries Day map: $DAY_BMP"
         "$SCRIPT_PATH" "$SZ" --type Countries --day
       fi
@@ -408,13 +442,28 @@ from io import BytesIO
 from PIL import Image, ImageEnhance
 
 day_bmp, day_z, out_bmp, out_z, W, H = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6])
-if os.path.isfile(day_bmp):
-    img = Image.open(day_bmp)
-else:
-    raw = zlib.decompress(open(day_z, "rb").read())
-    img = Image.open(BytesIO(raw))
 
-img = img.convert("RGB")
+def load_img(b, z):
+    candidates = [b, z]
+    fname_b = os.path.basename(b)
+    fname_z = os.path.basename(z)
+    for d in ["/opt/hamclock-backend/htdocs/ham/HamClock/maps", "/var/www/html/ham/HamClock/maps", os.path.expanduser("~/devel/open-hamclock-backend/htdocs/ham/HamClock/maps")]:
+        candidates.append(os.path.join(d, fname_b))
+        candidates.append(os.path.join(d, fname_z))
+    for c in candidates:
+        if os.path.isfile(c):
+            try:
+                if c.endswith(".z"):
+                    return Image.open(BytesIO(zlib.decompress(open(c, "rb").read()))).convert("RGB")
+                else:
+                    return Image.open(c).convert("RGB")
+            except Exception:
+                pass
+    return None
+
+img = load_img(day_bmp, day_z)
+if img is None:
+    raise RuntimeError(f"Could not load prerequisite Countries Day map: {day_bmp}")
 if img.size != (W, H):
     img = img.resize((W, H), Image.LANCZOS)
 
@@ -465,10 +514,26 @@ PY
       PHYS_N_Z="$OUTDIR/map-N-${SZ}-Physical.bmp.z"
 
       if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
+        for _d in "/opt/hamclock-backend/htdocs/ham/HamClock/maps" "/var/www/html/ham/HamClock/maps" "${SCRIPT_DIR}/../../htdocs/ham/HamClock/maps"; do
+          if [[ -f "$_d/map-D-${SZ}-Terrain.bmp" || -f "$_d/map-D-${SZ}-Terrain.bmp.z" ]]; then
+            cp "$_d/map-D-${SZ}-Terrain.bmp"* "$OUTDIR/" 2>/dev/null || true
+            break
+          fi
+        done
+      fi
+      if [[ ! -f "$DAY_BMP" && ! -f "$DAY_Z" ]]; then
         echo "  -> Generating prerequisite Terrain Day map: $DAY_BMP"
         "$SCRIPT_PATH" "$SZ" --type Terrain --day
       fi
 
+      if [[ ! -f "$PHYS_N_BMP" && ! -f "$PHYS_N_Z" ]]; then
+        for _d in "/opt/hamclock-backend/htdocs/ham/HamClock/maps" "/var/www/html/ham/HamClock/maps" "${SCRIPT_DIR}/../../htdocs/ham/HamClock/maps"; do
+          if [[ -f "$_d/map-N-${SZ}-Physical.bmp" || -f "$_d/map-N-${SZ}-Physical.bmp.z" ]]; then
+            cp "$_d/map-N-${SZ}-Physical.bmp"* "$OUTDIR/" 2>/dev/null || true
+            break
+          fi
+        done
+      fi
       if [[ ! -f "$PHYS_N_BMP" && ! -f "$PHYS_N_Z" ]]; then
         echo "  -> Generating prerequisite Physical Night map for city lights: $PHYS_N_BMP"
         "$SCRIPT_PATH" "$SZ" --type Physical --night
@@ -486,14 +551,30 @@ day_bmp, day_z, phys_bmp, phys_z, out_bmp, out_z, W, H = (
 )
 
 def load_img(b, z):
-    if os.path.isfile(b):
-        return Image.open(b).convert("RGB")
-    if os.path.isfile(z):
-        return Image.open(BytesIO(zlib.decompress(open(z, "rb").read()))).convert("RGB")
+    candidates = [b, z]
+    fname_b = os.path.basename(b)
+    fname_z = os.path.basename(z)
+    for d in ["/opt/hamclock-backend/htdocs/ham/HamClock/maps", "/var/www/html/ham/HamClock/maps", os.path.expanduser("~/devel/open-hamclock-backend/htdocs/ham/HamClock/maps")]:
+        candidates.append(os.path.join(d, fname_b))
+        candidates.append(os.path.join(d, fname_z))
+    for c in candidates:
+        if os.path.isfile(c):
+            try:
+                if c.endswith(".z"):
+                    return Image.open(BytesIO(zlib.decompress(open(c, "rb").read()))).convert("RGB")
+                else:
+                    return Image.open(c).convert("RGB")
+            except Exception:
+                pass
     return None
 
 day_img = load_img(day_bmp, day_z)
 phys_img = load_img(phys_bmp, phys_z)
+
+if day_img is None:
+    raise RuntimeError(f"Could not load prerequisite Terrain Day map: {day_bmp}")
+if phys_img is None:
+    raise RuntimeError(f"Could not load prerequisite Physical Night map: {phys_bmp}")
 
 if day_img.size != (W, H):
     day_img = day_img.resize((W, H), Image.LANCZOS)
@@ -521,6 +602,11 @@ else:
     city_lights = np.array(native_lights, dtype=float)
 
 city_lights[ocean_mask] = 0.0
+
+# Zero out any spurious lights/watermark artifacts in East Antarctica interior
+x1, x2 = int(W * 0.740), int(W * 0.825)
+y1, y2 = int(H * 0.910), int(H * 0.975)
+city_lights[y1:y2, x1:x2] = 0.0
 
 final_arr = np.clip(terrain_22 + city_lights, 0, 255).astype(np.uint8)
 final_img = Image.fromarray(final_arr)
