@@ -12,7 +12,7 @@ Defaults:
     Rounds   : 12 (1 hour at 5-min interval)
     Interval : 300 s (5 min)
     Servers  : ohb  csi  (see SERVERS dict below — edit base URLs to match your setup)
-    Map types: Aurora Clouds Countries DRAP-S MUF-RT OHB-S CSI-S Terrain Wx-in Wx-mB
+    Map types: Aurora Clouds Countries DRAP-S MUF-RT OHB-S CSI-S Physical Terrain Wx-in Wx-mB
     Sizes    : all 8 standard sizes
 
 Notes:
@@ -46,6 +46,7 @@ MAP_TYPES = [
     ("Countries", True),
     ("DRAP-S",    True),
     ("MUF-RT",    True),
+    ("Physical",  True),
     ("Terrain",   True),
     ("Wx-in",     True),
     ("Wx-mB",     True),
