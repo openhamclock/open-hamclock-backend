@@ -36,6 +36,9 @@
 # Reads dynamic_status.json (sidecar) produced by probe_dynamic_endpoints.sh,
 # which should run on its own cron every 30 minutes.
 
+# ── Shell Options ───────────────────────────────────────────────────────────
+shopt -s extglob
+
 # ── Config ──────────────────────────────────────────────────────────────────
 # Load external thresholds
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # Ensure SCRIPT_DIR is set
@@ -151,8 +154,8 @@ get_thresholds() {
             echo "$THRESH_CLOUDS"
             return
             ;;
-        # map-[D|N]-*-Countries.* and map-[D|N]-*-Terrain* are static
-        map-[DN]-*-Countries.*|map-[DN]-*-Terrain*|Terrain*)
+        # map-[D|N]-*-Countries.*, map-[D|N]-*-Terrain*, and map-[D|N]-*-Physical.* are static
+        *(map-[DN]-*-)@(Countries|Terrain|Physical)*)
             echo "STATIC"
             return
             ;;

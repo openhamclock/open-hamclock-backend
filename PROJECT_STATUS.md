@@ -60,6 +60,7 @@ These are replaced dynamically in the background on the target host per the base
 - [x] [maps/MUF-RT*](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/kc2g_muf_heatmap.sh) - MUF RT display based on kc2g propagation map engine
 - [x] [maps/Tropo*](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/update_tropo_maps.sh) - Tropospheric ducting forecast maps
 - [x] maps/Terrain* - copied from CSI and hosted locally; no need to regenerate; Terrain map display
+- [x] [maps/Physical*](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/utility/update_world_maps.sh) - Physical map display (Natural Earth land cover & NASA city lights)
 - [x] [SDO/*](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/update_all_sdo.sh) - images of the Sun for the SDO pane
 
 ### Dynamic Web Endpoints
@@ -99,6 +100,7 @@ ESP8266-based devices use an older API (some URLs are different) and need a bina
 - [x] Remote Address Reporting at startup 
 - [x] Countries map download and display (all sizes)
 - [x] Terrain map download and display (all sizes)
+- [x] Physical map download and display (all sizes)
 - [x] SDO generation, download, and display
 - [x] MUF-RT map generation, download, and display (all sizes)
 - [x] Weather map generation, download, and display (all sizes in mB and in)
