@@ -286,8 +286,8 @@ darken_night_wx() {
     im_convert "$in_bmp" "$png" || {
         echo "convert bmp->png failed for Night Wx ${map_type} ${W}x${H}" >&2; return 1; }
 
-    # Reduce to 53% brightness — brings N/D to 0.37, matching DRAP grayline contrast
-    im_convert "$png" -modulate 53,100,100 "$png_out" || {
+    # Reduce brightness to 33% — brings N/D to ~0.22, balancing isobar detail with grayline contrast
+    im_convert "$png" -modulate 33,100,100 "$png_out" || {
         echo "brightness darken failed for Night Wx ${map_type} ${W}x${H}" >&2; return 1; }
 
     im_convert "$png_out" -resize "${W}x${H}!" RGB:"$raw" || {

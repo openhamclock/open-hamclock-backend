@@ -109,12 +109,76 @@ lons = np.linspace(-180, 180, 721)
 lats = np.linspace(-90,   90, 361)
 glon, glat = np.meshgrid(lons, lats)
 
-print("  Interpolating...", file=sys.stderr)
-grid = griddata(pts[:, :2], pts[:, 2], (glon, glat), method="linear")
-nan_mask = np.isnan(grid)
-if nan_mask.any():
-    grid_nn = griddata(pts[:, :2], pts[:, 2], (glon, glat), method="nearest")
-    grid[nan_mask] = grid_nn[nan_mask]
+print("  Interpolating with spherical polar convergence...", file=sys.stderr)
+# 1. Periodic wrapping along longitude to eliminate dateline seam
+pts_wrapped = []
+for lon, lat, val in pts:
+    pts_wrapped.append((lon, lat, val))
+    if lon < -120:
+        pts_wrapped.append((lon + 360, lat, val))
+    elif lon > 120:
+        pts_wrapped.append((lon - 360, lat, val))
+pts_wrapped = np.array(pts_wrapped)
+
+grid = griddata(pts_wrapped[:, :2], pts_wrapped[:, 2], (glon, glat), method="linear")
+
+# 2. Polar Stereographic for Arctic (lat >= 60)
+arctic_mask = pts[:, 1] >= 50
+if np.any(arctic_mask):
+    apts = pts[arctic_mask]
+    alon_r = np.radians(apts[:, 0])
+    alat_r = np.radians(apts[:, 1])
+    ar = 2.0 * np.tan((np.pi/2.0 - alat_r) / 2.0)
+    ax = ar * np.cos(alon_r)
+    ay = ar * np.sin(alon_r)
+
+    n_idx = np.where(lats >= 60)[0]
+    n_glon_r = np.radians(glon[n_idx, :])
+    n_glat_r = np.radians(glat[n_idx, :])
+    nr = 2.0 * np.tan((np.pi/2.0 - n_glat_r) / 2.0)
+    ngx = nr * np.cos(n_glon_r)
+    ngy = nr * np.sin(n_glon_r)
+
+    n_stereo = griddata(np.column_stack([ax, ay]), apts[:, 2], (ngx, ngy), method="linear")
+    n_nans = np.isnan(n_stereo)
+    if np.any(n_nans):
+        n_stereo[n_nans] = griddata(np.column_stack([ax, ay]), apts[:, 2], (ngx, ngy), method="nearest")[n_nans]
+
+    w_n = np.clip((glat[n_idx, :] - 60.0) / 10.0, 0.0, 1.0)
+    base_n = np.where(np.isnan(grid[n_idx, :]), n_stereo, grid[n_idx, :])
+    grid[n_idx, :] = base_n * (1.0 - w_n) + n_stereo * w_n
+
+# 3. Polar Stereographic for Antarctic (lat <= -60)
+antarctic_mask = pts[:, 1] <= -50
+if np.any(antarctic_mask):
+    spts = pts[antarctic_mask]
+    slon_r = np.radians(spts[:, 0])
+    slat_r = np.radians(spts[:, 1])
+    sr = 2.0 * np.tan((np.pi/2.0 + slat_r) / 2.0)
+    sx = sr * np.cos(slon_r)
+    sy = sr * np.sin(slon_r)
+
+    s_idx = np.where(lats <= -60)[0]
+    s_glon_r = np.radians(glon[s_idx, :])
+    s_glat_r = np.radians(glat[s_idx, :])
+    sr_grid = 2.0 * np.tan((np.pi/2.0 + s_glat_r) / 2.0)
+    sgx = sr_grid * np.cos(s_glon_r)
+    sgy = sr_grid * np.sin(s_glon_r)
+
+    s_stereo = griddata(np.column_stack([sx, sy]), spts[:, 2], (sgx, sgy), method="linear")
+    s_nans = np.isnan(s_stereo)
+    if np.any(s_nans):
+        s_stereo[s_nans] = griddata(np.column_stack([sx, sy]), spts[:, 2], (sgx, sgy), method="nearest")[s_nans]
+
+    w_s = np.clip((-60.0 - glat[s_idx, :]) / 10.0, 0.0, 1.0)
+    base_s = np.where(np.isnan(grid[s_idx, :]), s_stereo, grid[s_idx, :])
+    grid[s_idx, :] = base_s * (1.0 - w_s) + s_stereo * w_s
+
+# 4. Fill any remaining NaNs in mid-latitudes
+rem_nans = np.isnan(grid)
+if np.any(rem_nans):
+    grid[rem_nans] = griddata(pts_wrapped[:, :2], pts_wrapped[:, 2], (glon, glat), method="nearest")[rem_nans]
+
 grid = gaussian_filter(grid, sigma=1.5)
 
 c_min, c_max = grid.min(), grid.max()
@@ -264,12 +328,11 @@ exp = W*H*3
 if len(raw) != exp:
     raise SystemExit(f"RAW size {len(raw)} != expected {exp}")
 
-# Darken Night image so the grayline is visible.
-# MUF-RT has global coverage so D and N are naturally very similar (N/D=0.84).
-# Applying 0.44 brings N/D to 0.37, matching DRAP's grayline contrast.
+# Darken Night image so the grayline is visible while contours remain legible.
+# Applying 0.29 brings N/D to ~0.29, balancing detail and grayline contrast.
 if DN == "N":
     img = Image.frombytes("RGB", (W, H), raw)
-    raw = ImageEnhance.Brightness(img).enhance(0.44).tobytes()
+    raw = ImageEnhance.Brightness(img).enhance(0.29).tobytes()
 
 pix = bytearray(W*H*2)
 j = 0
@@ -323,6 +386,4 @@ done
 rm -f mufd.geojson stations.json mufd_grid.xyz mufd.grd \
       stations_circles.txt stations_labels.txt
 
-echo "Sleeping for 30 seconds..."
-sleep 30
 echo "Done."
