@@ -45,5 +45,6 @@ runuser_wrapper $SCRIPTS/web15rss_fetch.py
 /bin/true # example
 
 # new scripts to prime
+runuser_wrapper $SCRIPTS/gen_pota_scheduled.pl
 
 #############################################
