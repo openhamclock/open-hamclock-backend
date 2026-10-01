@@ -30,6 +30,7 @@ These are replaced dynamically in the background on the target host per the base
 - [x] [ONTA/iota_spots.txt](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/gen_iota.pl) - generates IOTA spots on schedule per crontab
 - [x] [ONTA/xonta_spots.txt](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/gen_xonta.pl) - generates extra xOTA spots (GMA, LLOTA) on schedule per crontab
 - [x] [ONTA/band_activity.txt](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/gen_bandactivity.pl) - generates band activity station counts per band/continent
+- [x] [ONTA/pota_scheduled.txt](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/gen_pota_scheduled.pl) - generates rolling window of scheduled POTA activations
 - [x] [ONTA/iota.txt](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/fetch_IOTA.py) - supports IOTA islands reference cache
 - [x] [ONTA/wwff_spots.json](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/fetch_wwff_cache.pl) - central WWFF spot cache for ONTA
 - [x] [contests/contests311.txt](https://github.com/openhamclock/open-hamclock-backend/blob/main/scripts/gen_contest-calendar.sh) - generates list of recent contests for contests pane

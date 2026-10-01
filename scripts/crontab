@@ -114,6 +114,7 @@ LANG=C
 20 2 * * *     $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_cty_wt_mod.sh
 
 */30 * * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/update_all_sdo.sh
+*/30 * * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/gen_pota_scheduled.pl
 
 # maps
 10,40 * * * *  $SCRIPTS/cron-wrapper.sh $SCRIPTS/kc2g_muf_heatmap.sh
