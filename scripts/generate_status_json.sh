@@ -69,6 +69,7 @@ THRESH_IOTA="${THRESH_IOTA:-90000 108000 172800}" # 25h 30h 48h
 THRESH_BALLOONS="${THRESH_BALLOONS:-300 600 1800}" # 5m 10m 30m
 THRESH_PICO="${THRESH_PICO:-2700 5400 10800}"      # 45m 90m 3h
 THRESH_BAND_ACTIVITY="${THRESH_BAND_ACTIVITY:-2100 3900 10800}" # 35m 65m 3h
+THRESH_POTA_SCHEDULED="${THRESH_POTA_SCHEDULED:-2100 3900 10800}" # 35m 65m 3h
 THRESH_MARINE="${THRESH_MARINE:-360 720 1800}"        # 6m 12m 30m
 THRESH_FIRES="${THRESH_FIRES:-1200 2400 3600}"        # 20m 40m 1h
 THRESH_FIREWX="${THRESH_FIREWX:-360 720 1800}"        # 6m 12m 30m
@@ -199,6 +200,10 @@ get_thresholds() {
             ;;
         band_activity.txt)
             echo "$THRESH_BAND_ACTIVITY"
+            return
+            ;;
+        pota_scheduled.txt)
+            echo "$THRESH_POTA_SCHEDULED"
             return
             ;;
     esac
