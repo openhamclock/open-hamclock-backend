@@ -53,6 +53,7 @@ my $UA = HTTP::Tiny->new(
 my $CACHE_DIR = '/opt/hamclock-backend/cache/hamclock-wx-cache/';
 my $WX_TTL    = $ENV{'WX_CACHE_TTL'} // 600;   # 10 min: matches OWM/Open-Meteo update cadence
 my $TZ_TTL    = $ENV{'TZ_CACHE_TTL'} // 3600;  # 1 hr: DST offset doesn't change more often than this
+my $TZ_FAIL_BACKOFF = 60;                      # after a failed tz lookup, don't retry upstream for this many seconds
 
 # -------------------------
 # Barometer trend config
@@ -230,23 +231,53 @@ sub get_timezone_secs {
     my $cached = cache_get($file, $TZ_TTL);
     return $cached->{offset} if $cached && defined $cached->{offset};
 
+    # Last known good offset, any age. A stale DST-aware offset is far better
+    # than the longitude approximation, which is an hour wrong for the whole
+    # DST period. Used whenever a live lookup is skipped or fails.
+    my $stale_offset = sub {
+        my $s = cache_get($file, 2**31);
+        return ($s && defined $s->{offset}) ? $s->{offset} : undef;
+    };
+
     if ($ENV{HTTP_X_RATE_LIMITED} || $ENV{RATE_LIMITED}) {
-        return approx_timezone_seconds($lng);
+        my $off = $stale_offset->();
+        return defined $off ? $off : approx_timezone_seconds($lng);
     }
 
-    # 1. Open-Meteo timezone API -- free, no key, returns IANA name + utc_offset_seconds (DST-aware)
-    my $tz = _tz_open_meteo($lat, $lng);
+    # Serialize lookups per location so a burst of requests makes one upstream
+    # call instead of many (also keeps us under TimeZoneDB's 1 request/second).
+    # Released automatically when $lock goes out of scope.
+    my $lock;
+    flock($lock, LOCK_EX) if open($lock, '>>', "$file.lock");
 
-    # 2. TimeZoneDB -- free tier, key optional, returns DST-aware offset
-    $tz = _tz_timezonedb($lat, $lng) unless defined $tz;
+    # Another request may have filled the cache while we waited for the lock.
+    $cached = cache_get($file, $TZ_TTL);
+    return $cached->{offset} if $cached && defined $cached->{offset};
 
-    if (defined $tz) {
-        cache_set($file, { offset => $tz });
-        return $tz;
+    # After a failed lookup, back off briefly instead of hammering upstream.
+    my $failfile = cache_key('tzfail', $lat, $lng);
+    unless (cache_get($failfile, $TZ_FAIL_BACKOFF)) {
+        # 1. Open-Meteo timezone API -- free, no key, returns IANA name + utc_offset_seconds (DST-aware)
+        my $tz = _tz_open_meteo($lat, $lng);
+
+        # 2. TimeZoneDB -- free tier, key optional, returns DST-aware offset
+        $tz = _tz_timezonedb($lat, $lng) unless defined $tz;
+
+        if (defined $tz) {
+            cache_set($file, { offset => $tz });
+            return $tz;
+        }
+
+        cache_set($failfile, { failed => 1 });
     }
 
-    # 3. Longitude approximation -- no DST, last resort. Not cached, since it's
+    # 3. Stale offset from an earlier successful lookup, if we have one.
+    my $off = $stale_offset->();
+    return $off if defined $off;
+
+    # 4. Longitude approximation -- no DST, last resort. Not cached, since it's
     # cheap to compute and we want a real lookup to win as soon as one succeeds.
+    warn "WX: tz lookup failed for $lat,$lng, using longitude approximation (no DST)\n";
     return approx_timezone_seconds($lng);
 }
 
