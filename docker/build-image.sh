@@ -19,6 +19,7 @@
 GIT_REPO=https://github.com/openhamclock/open-hamclock-backend
 IMAGE_BASE=komacke/open-hamclock-backend
 VOACAP_VERSION=v.0.7.6
+MAPS_VERSION=maps-v4
 HTTP_PORT=80
 
 # Don't set anything past here
@@ -166,8 +167,8 @@ warn_local_edits() {
 get_maps() {
     if [ ! -e ohb-maps.tar.zst ]; then
         echo
-        echo "Getting ohb-maps from GitHub ..."
-        curl -fsSLO $GIT_REPO/releases/download/maps-v3/ohb-maps.tar.zst
+        echo "Getting ohb-maps from GitHub ($MAPS_VERSION) ..."
+        curl -fsSLO $GIT_REPO/releases/download/$MAPS_VERSION/ohb-maps.tar.zst
     fi
 }
 

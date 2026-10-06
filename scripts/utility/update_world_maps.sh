@@ -15,6 +15,7 @@ set -e
 # ---------------------------------------------------------------------------
 SCRIPT_PATH="$(realpath "$0")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+MAPS_VERSION="${MAPS_VERSION:-maps-v4}"
 
 if [[ -z "$GMT_USERDIR" ]]; then
   if [[ -w "/opt/hamclock-backend" ]]; then
@@ -267,11 +268,11 @@ ensure_raw_city_lights() {
       fi
     fi
   done
-  echo "  -> Fetching source NASA city lights for ${sz} from GitHub release..."
-  python3 - <<PY "$sz" "$target"
+  echo "  -> Fetching source NASA city lights for ${sz} from GitHub release ($MAPS_VERSION)..."
+  python3 - <<PY "$sz" "$target" "$MAPS_VERSION"
 import sys, urllib.request, zstandard, tarfile
-sz, target = sys.argv[1], sys.argv[2]
-url = "https://github.com/openhamclock/open-hamclock-backend/releases/download/maps-v3/ohb-maps.tar.zst"
+sz, target, maps_ver = sys.argv[1], sys.argv[2], sys.argv[3]
+url = f"https://github.com/openhamclock/open-hamclock-backend/releases/download/{maps_ver}/ohb-maps.tar.zst"
 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 resp = urllib.request.urlopen(req, timeout=60)
 dctx = zstandard.ZstdDecompressor()
@@ -346,13 +347,13 @@ for DN in "${FILTER_DN[@]}"; do
     # 3a. PHYSICAL DAY (Natural Earth land cover)
     # -----------------------------------------------------------------
     if [[ "$MAPTYPE" == "Physical" && "$DN" == "D" ]]; then
-      python3 - <<'PY' "$DN" "$SZ" "$BMP" "$BMP_Z" "$OUTDIR"
+      python3 - <<'PY' "$DN" "$SZ" "$BMP" "$BMP_Z" "$OUTDIR" "$MAPS_VERSION"
 import os, sys, zlib, struct, subprocess
 from io import BytesIO
 from PIL import Image
 import numpy as np
 
-DN, SZ, out_bmp, out_z, outdir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+DN, SZ, out_bmp, out_z, outdir, maps_ver = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
 W, H = map(int, SZ.split("x"))
 
 def write_bmp(img, bmp_path, z_path):
@@ -428,10 +429,10 @@ if src_img is None:
                 except Exception:
                     pass
 
-# 3. Fallback: download from maps-v3 GitHub release
+# 3. Fallback: download from GitHub release
 if src_img is None:
     import urllib.request, zstandard, tarfile
-    url = "https://github.com/openhamclock/open-hamclock-backend/releases/download/maps-v3/ohb-maps.tar.zst"
+    url = f"https://github.com/openhamclock/open-hamclock-backend/releases/download/{maps_ver}/ohb-maps.tar.zst"
     print(f"Fetching source Physical map from {url}...")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     resp = urllib.request.urlopen(req, timeout=60)
@@ -561,6 +562,14 @@ y1, y2 = int(H * 0.910), int(H * 0.975)
 city_lights[y1:y2, x1:x2] = 0.0
 
 final_arr = np.clip(phys_land + city_lights, 0, 255).astype(np.uint8)
+
+# Set the blob color in East Antarctica to match the gray nighttime Antarctica
+above = final_arr[max(0, y1 - max(5, int(H * 0.02))):y1, x1:x2]
+gray_antarctica = np.median(above, axis=(0, 1)).astype(np.uint8)
+if not np.any(gray_antarctica):
+    gray_antarctica = np.array([156, 165, 156], dtype=np.uint8)
+final_arr[y1:y2, x1:x2] = gray_antarctica
+
 final_img = Image.fromarray(final_arr)
 
 # Write BMP v4 RGB565 top-down + .bmp.z
