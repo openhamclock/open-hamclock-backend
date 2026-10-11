@@ -333,7 +333,7 @@ DYN_FAILED=0
 DYN_TIMEOUT=0
 # Fetch custom 24h count metrics directly from prometheus (new) and node-exporter (old)
 count_24_new=$(curl -A "$UA" -sS --max-time "$QUERY_TIMEOUT" -G "$PROMETHEUS_URL" \
-      --data-urlencode 'query=count(sum by (serial) (count_over_time(nginx_requests_total[24h]) > 0))' 2>/dev/null \
+      --data-urlencode 'query=count(sum by (serial) (job:nginx_serial:active_24h))' 2>/dev/null \
         | jq -r '.data.result[0].value[1] // 0')
 count_24_old=$(curl -A "$UA" -sS --max-time "$QUERY_TIMEOUT" "$NODE_EXPORTER_URL" 2>/dev/null | grep "^count_24_hours" | awk '{print $2}')
 if ! [[ "$count_24_new" =~ ^[0-9]+$ ]]; then
