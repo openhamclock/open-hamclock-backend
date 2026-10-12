@@ -140,6 +140,19 @@ foreach my $tag (@$tags) {
     last if $stable_tag && $beta_tag;
 }
 
+# Determine the newest release tag between stable and beta (first match in @$tags is newest)
+my $newest_tag;
+foreach my $tag (@$tags) {
+    if (($stable_tag && $tag->{original} eq $stable_tag->{original}) ||
+        ($beta_tag   && $tag->{original} eq $beta_tag->{original})) {
+        $newest_tag = $tag;
+        last;
+    }
+}
+$newest_tag //= $stable_tag // $beta_tag;
+
+my %release_metadata;
+
 # 2. Process and Save to .txt, .tag, and .zip files
 foreach my $item (
     { type => 'stable', data => $stable_tag },
@@ -164,6 +177,7 @@ foreach my $item (
     my $rel_url = "https://api.github.com/repos/$owner/$repo/releases/tags/$orig_ver";
     my $rel_resp = $ua->get($rel_url);
     my $rel_data = $rel_resp->is_success ? decode_json($rel_resp->decoded_content) : undef;
+    $release_metadata{$orig_ver} = $rel_data if $rel_data;
 
     # Define the target ZIP and its local SHA file
     my $zip_filename = "ESPHamClock-V$display_version.zip";
@@ -299,6 +313,61 @@ foreach my $item (
     close($fh);
     chmod 0644, $txt_file;
     print "Success: Processed $item->{type} -> $status_msg\n";
+}
+
+# --- Handle compatibility.json (unified for stable and beta, only fetch newest) ---
+if ($newest_tag) {
+    my $compat_filename = "compatibility.json";
+    my $compat_path     = "$cache_dir/$compat_filename";
+    my $compat_sha_path = "$compat_path.sha256";
+    my $compat_orig_ver = $newest_tag->{original};
+
+    my $compat_rel_data = $release_metadata{$compat_orig_ver};
+    if (!$compat_rel_data) {
+        my $rel_url = "https://api.github.com/repos/$owner/$repo/releases/tags/$compat_orig_ver";
+        my $rel_resp = $ua->get($rel_url);
+        $compat_rel_data = $rel_resp->is_success ? decode_json($rel_resp->decoded_content) : undef;
+        $release_metadata{$compat_orig_ver} = $compat_rel_data if $compat_rel_data;
+    }
+
+    my ($compat_asset) = $compat_rel_data
+        ? grep { $_->{name} eq $compat_filename } @{$compat_rel_data->{assets} // []}
+        : ();
+
+    if ($compat_asset) {
+        my $compat_digest = ($compat_asset->{digest} // "");
+        $compat_digest =~ s/^sha256://;
+
+        my $skip = 0;
+        if ($compat_digest && -f $compat_sha_path) {
+            if (open(my $sfh, '<', $compat_sha_path)) {
+                my $line = <$sfh>;
+                close($sfh);
+                if ($line) {
+                    my ($existing_sha) = split(/\s+/, $line);
+                    if ($existing_sha eq $compat_digest) {
+                        print "Skipping $compat_filename: SHA256 $compat_digest matches local cache.\n";
+                        $skip = 1;
+                    }
+                }
+            }
+        }
+
+        if (!$skip) {
+            my $compat_url = "https://github.com/$owner/$repo/releases/download/$compat_orig_ver/$compat_filename";
+            print "Downloading $compat_filename from $compat_url ($compat_orig_ver)...\n";
+            my $compat_resp = get_file_with_retry($ua, $compat_url, $compat_path, $compat_digest);
+            if ($compat_resp->is_success) {
+                chmod 0644, $compat_path;
+                verify_and_cleanup($compat_path, $compat_digest, []);
+                print "Successfully saved and verified $compat_path\n";
+            } else {
+                print "Warning: Failed to download $compat_filename: " . $compat_resp->status_line . "\n";
+            }
+        }
+    } else {
+        print "Note: $compat_filename not found in release assets for newest tag $compat_orig_ver (optional asset).\n";
+    }
 }
 
 # --- Handle main branch zip ---
