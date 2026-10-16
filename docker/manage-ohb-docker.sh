@@ -18,7 +18,7 @@
 # at release time, this value is set to the tagged release
 OHB_MANAGER_VERSION=edge
 # tags to use
-DEFAULT_VOACAP_SERVICE_TAG=1.20
+DEFAULT_VOACAP_SERVICE_TAG=1.21
 DEFAULT_PSKR_MQTT_CACHE_TAG=1.19
 DEFAULT_WSPR_LIVE_CACHE_TAG=1.4
 
@@ -49,6 +49,7 @@ DEFAULT_ENV_FILE="$STARTED_FROM/.env"
 DEFAULT_MAP_SIZES=all
 # voacap container will be disabled when not default
 DEFAULT_VOACAP_SERVICE_HOST=voacap-service:8080
+DEFAULT_VOACAP_MAX_CONCURRENT=4
 # PSKR container disabled when not default
 DEFAULT_PSKR_MQTT_CACHE_HOST=pskr-mqtt-cache:5000
 DEFAULT_ALPHA_INSTALL="true"
@@ -158,8 +159,15 @@ main() {
 }
 
 get_compose_opts() {
-    while getopts ":a:c:e:h:k:l:m:n:p:r:s:t:v:" opt; do
+    while getopts ":a:c:C:e:h:k:l:m:n:p:r:s:t:v:" opt; do
         case $opt in
+            C)
+                REQUESTED_VOACAP_MAX_CONCURRENT="$OPTARG"
+                if ! [[ "$REQUESTED_VOACAP_MAX_CONCURRENT" =~ ^[1-9][0-9]*$ ]]; then
+                    echo "ERROR: -$opt option must be a positive integer"
+                    exit 1
+                fi
+                ;;
             a)
                 REQUESTED_ALPHA_INSTALL="$OPTARG"
                 ;;
@@ -305,6 +313,7 @@ The following arguments come after the command:
             -t: <image tag>
             -r: screen res limits number of maps generated: '${SUPPORTED_MAP_SIZES[*]}'
             -v: set voacap-service server host:port in ohb; "-" means this machine serves
+            -C: maximum concurrent VOACAP calculations in voacap-service (default: 4)
 
 EOF
 }
@@ -336,6 +345,7 @@ STICKY_EXTERNAL_HTTP_LOG="$ENABLE_EXTERNAL_HTTP_LOG"
 STICKY_CERT_PATH="$CERT_PATH"
 STICKY_MAP_SIZES="$MAP_SIZES"
 STICKY_VOACAP_SERVICE_HOST="$VOACAP_SERVICE_HOST"
+STICKY_VOACAP_MAX_CONCURRENT="$VOACAP_MAX_CONCURRENT"
 STICKY_PSKR_MQTT_CACHE_HOST="$PSKR_MQTT_CACHE_HOST"
 STICKY_ALPHA_INSTALL="$ALPHA_INSTALL"
 STICKY_PROXY_MAPS="$PROXY_MAPS"
@@ -489,6 +499,9 @@ is_ohb_installed() {
         echo "  External log:          '$STICKY_EXTERNAL_HTTP_LOG'"
         echo "  Map sizes:             '$STICKY_MAP_SIZES'"
         echo "  voacap-service:        '$STICKY_VOACAP_SERVICE_HOST'"
+        if [ "$STICKY_VOACAP_SERVICE_HOST" == "$DEFAULT_VOACAP_SERVICE_HOST" -o "$STICKY_VOACAP_SERVICE_HOST" == "-" ]; then
+            echo "  voacap max concurrent: '${STICKY_VOACAP_MAX_CONCURRENT:-$DEFAULT_VOACAP_MAX_CONCURRENT}'"
+        fi
         echo "  pskr-mqtt-cache:       '$STICKY_PSKR_MQTT_CACHE_HOST'"
         echo "  Alpha install:         '$STICKY_ALPHA_INSTALL'"
         echo "  Proxy maps:            '$STICKY_PROXY_MAPS'"
@@ -1047,6 +1060,21 @@ determine_voacap_service_host() {
     fi
 }
 
+determine_voacap_max_concurrent() {
+    # first precedence: requested on command line
+    if [ -n "$REQUESTED_VOACAP_MAX_CONCURRENT" ]; then
+        VOACAP_MAX_CONCURRENT="$REQUESTED_VOACAP_MAX_CONCURRENT"
+
+    # second precedence: sticky setting
+    elif [ -n "$STICKY_VOACAP_MAX_CONCURRENT" ]; then
+        VOACAP_MAX_CONCURRENT="$STICKY_VOACAP_MAX_CONCURRENT"
+
+    # third precedence: default
+    else
+        VOACAP_MAX_CONCURRENT="$DEFAULT_VOACAP_MAX_CONCURRENT"
+    fi
+}
+
 determine_pskr_mqtt_cache_host() {
     # first precedence
     if [ -n "$REQUESTED_PSKR_MQTT_CACHE_HOST" ]; then
@@ -1153,6 +1181,7 @@ determine_all_vars() {
     determine_http_log
     determine_map_sizes
     determine_voacap_service_host
+    determine_voacap_max_concurrent
     determine_pskr_mqtt_cache_host
     determine_alpha_install
     determine_proxy_maps
@@ -1286,6 +1315,7 @@ EOF
     $CPUSHARE_VOACAP_SERVICE
     environment:
       LOG_LEVEL: INFO
+      VOACAP_MAX_CONCURRENT: "$VOACAP_MAX_CONCURRENT"
     networks:
       - $OHB_NETWORK
     shm_size: "2gb"    # /dev/shm for fast VOACAP temp files
@@ -1333,6 +1363,7 @@ services:
     restart: unless-stopped
     environment:
       LOG_LEVEL: INFO
+      VOACAP_MAX_CONCURRENT: "${VOACAP_MAX_CONCURRENT:-$DEFAULT_VOACAP_MAX_CONCURRENT}"
     ports:
       - $REQUESTED_HTTP_PORT:8080
     shm_size: "2gb"    # /dev/shm for fast VOACAP temp files
