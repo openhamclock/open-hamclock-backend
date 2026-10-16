@@ -94,6 +94,10 @@ if ($query_file eq "ESPHamClock-main.zip") {
             $content_type = 'application/pdf';
         }
     }
+} elsif ($query_file eq "compatibility.json") {
+    # Case E: Compatibility matrix JSON (unified for stable and beta channels)
+    $target_file = "compatibility.json";
+    $content_type = 'application/json';
 }
 
 # 2. Check for file existence and serve
@@ -108,6 +112,10 @@ if ($target_file ne "" && -f $full_path) {
         -content_length => $filesize,
     );
     if ($content_type eq 'application/pdf') {
+        $headers{'-disposition'} = "inline; filename=\"$target_file\"";
+    } elsif ($content_type eq 'application/json') {
+        $headers{'-charset'} = 'utf-8';
+        $headers{'-access_control_allow_origin'} = '*';
         $headers{'-disposition'} = "inline; filename=\"$target_file\"";
     } else {
         $headers{'-attachment'} = $target_file;
