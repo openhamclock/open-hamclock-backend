@@ -9,7 +9,7 @@
 #   ╚═════╝ ╚═╝  ╚═╝╚═════╝
 #
 #  Open HamClock Backend
-#  fetch_tle.sh
+#  fetch_tle.sh  (AMSAT daily Keplerian source)
 #
 #  Copyright (C) 2026 Open HamClock Backend (OHB) Contributors
 #
@@ -29,13 +29,15 @@
 # ============================================================
 set -euo pipefail
 
-TLEDIR="/opt/hamclock-backend/tle"
-ARCHIVE="$TLEDIR/archive"
-TLEFILE="$TLEDIR/tles.txt"
-TMPFILE="$TLEDIR/tles.new"
-ESATS_OUT="/opt/hamclock-backend/htdocs/ham/HamClock/esats/esats.txt"
+TLEDIR="${TLEDIR:-/opt/hamclock-backend/tle}"
+TLEFILE="$TLEDIR/amsat-latest.txt"   # last good AMSAT download (validated); nothing else is kept
+TMPFILE="$TLEDIR/amsat-latest.new"
+META="$TLEDIR/amsat-latest.meta"     # provenance for the status dashboard (publish date, bulletin id, ...)
+STAMPDIR="$TLEDIR/.stamps"
+ESATS_OUT="${ESATS_OUT:-/opt/hamclock-backend/htdocs/ham/HamClock/esats/esats.txt}"
+ESATS_NEW="${ESATS_OUT}.new"
 
-FILTER="/opt/hamclock-backend/scripts/filter_amsat_active.pl"
+FILTER="${FILTER:-/opt/hamclock-backend/scripts/filter_amsat_active.pl}"
 
 MOONTLE_SCRIPT="${MOONTLE_SCRIPT:-/opt/hamclock-backend/scripts/moontle.py}"
 PYTHON_BIN="${PYTHON_BIN-/opt/hamclock-backend/venv/bin/python3}"
@@ -43,112 +45,149 @@ if [ ! -x "$PYTHON_BIN" ]; then
     PYTHON_BIN="/usr/bin/python3"
 fi
 
-mkdir -p "$TLEDIR" "$ARCHIVE" "$(dirname "$ESATS_OUT")"
-
-URLS=(
-  "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
-  "https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle"
-  "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle"
-  "https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=tle"
+# AMSAT publishes one file per day.  Sources are tried in order; the first
+# that returns a plausible TLE file wins.  A 304 (not modified) is not an error.
+AMSAT_URLS=(
+  "https://www.amsat.org/tle/dailytle.txt"
+  "https://www.amsat.org/tle/daily-bulletin.txt"
 )
+MIN_OBJECTS="${MIN_OBJECTS:-20}"            # reject truncated / error-page downloads
+STALE_WARN_HOURS="${STALE_WARN_HOURS:-72}"  # AMSAT is daily; warn if newest epoch is older
 
-CATNR_IDS=(
-    62394   # CROCUBE
-    62391   # LASARSAT
-    60237   # GRBBETA
-    98380   # HADES-SA (temp ID, launched 2026-03-30)
-    67683   # KNACKSAT-2
-    63235   # OTP-2 (Rogue Space)
-    20580   # HST / Hubble Space Telescope
-    25338   # NOAA-15 APT
-    28654   # NOAA-18 APT
-    33591   # NOAA-19 APT
-)
-
-# Satellites whose Celestrak name clashes or is absent — fetch by CATNR
-# and rewrite the name line so the filter can match them.
-declare -A CATNR_RENAME=(
-    [67287]="LUCA"  # Luca (Montenegro) — Celestrak returns "LUCA (RS90S)", rename to "LUCA" for filter
-)
+mkdir -p "$TLEDIR" "$STAMPDIR" "$(dirname "$ESATS_OUT")"
 
 ts() { date -u +"%Y%m%dT%H%M%SZ"; }
+CURL=(curl -A "HamClock-Backend/1.0" -sSL --connect-timeout 20 --max-time 90)
 
-echo "[$(date -u)] Fetching TLEs..."
+# stdin: any text.  stdout: only structurally valid 3-line TLE blocks (69-char
+# lines, good checksums), one block per NORAD id, newest epoch wins.
+tle_clean() {
+    perl -e '
+        sub ck { my $s=0; for my $c (split //, substr($_[0],0,68)) { $s+= ($c eq "-") ? 1 : ($c =~ /\d/ ? $c : 0) } $s%10 }
+        my @L = map { s/\r?\n$//r } <STDIN>;
+        my (%best, @order);
+        for (my $i=0; $i+2 <= $#L; $i++) {
+            my ($n,$a,$b) = @L[$i,$i+1,$i+2];
+            next unless $a =~ /^1 / && $b =~ /^2 / && $n !~ /^[12] /;
+            next unless length($a)==69 && length($b)==69;
+            next unless ck($a)==substr($a,68,1) && ck($b)==substr($b,68,1);
+            my ($id) = $a =~ /^1 (\d{5})/ or next;
+            my $yy = substr($a,18,2); my $d = substr($a,20,12);
+            next unless $d =~ /^\s*\d+\.\d+$/;
+            my $ep = ($yy<57 ? 2000+$yy : 1900+$yy)*1000 + $d;
+            $n =~ s/^\s+|\s+$//g;
+            push @order, $id unless exists $best{$id};
+            $best{$id} = [$ep,$n,$a,$b] if !exists $best{$id} || $ep >= $best{$id}[0];
+            $i += 2;
+        }
+        print "$best{$_}[1]\n$best{$_}[2]\n$best{$_}[3]\n" for @order;
+    '
+}
 
-: > "$TMPFILE"
+# Provenance file read by generate_status_json.sh (key=value lines).
+meta_set() {
+    local k="$1" v="$2"
+    { [[ -f "$META" ]] && grep -v "^${k}=" "$META" || true; echo "${k}=${v}"; } > "$META.tmp"
+    mv "$META.tmp" "$META"
+}
 
-# Use -z to send If-Modified-Since based on existing tles.txt mtime.
-# Celestrak returns 304/empty if unchanged, full data if updated.
-# Drop -f so a 403 "not updated" response doesn't abort the script.
-for u in "${URLS[@]}"; do
-    curl -A "HamClock-Backend/1.0" -sSL \
-        ${TLEFILE:+-z "$TLEFILE"} \
-        "$u" >> "$TMPFILE" \
-        || echo "WARNING: failed to fetch $u" >&2
-    echo >> "$TMPFILE"
-done
+echo "[$(date -u)] Fetching AMSAT keps..."
 
-for id in "${CATNR_IDS[@]}"; do
-    curl -A "HamClock-Backend/1.0" -sSL \
-        "https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=tle" >> "$TMPFILE" \
-        || echo "WARNING: NORAD $id not fetched" >&2
-    echo >> "$TMPFILE"
-done
+NEWDATA="$(mktemp)"; trap 'rm -f "$NEWDATA" "$TMPFILE" "$ESATS_NEW"' EXIT
+GOT_NEW=0; UNCHANGED=0; SRC_URL=""; SRC_PUB=""
 
-# Sanity check — if Celestrak returned nothing new (all If-Modified-Since
-# responses were empty), fall back to the existing tles.txt rather than
-# wiping it with an empty file.
-if ! grep -q '^1 ' "$TMPFILE"; then
-    echo "NOTE: No new TLE data from Celestrak (data unchanged) — keeping existing tles.txt"
-    rm -f "$TMPFILE"
-else
-    STAMP="$(ts)"
-    cp "$TLEFILE" "$ARCHIVE/tles-${STAMP}-old.txt" 2>/dev/null || true
-    mv "$TMPFILE" "$TLEFILE"
-    echo "TLEs installed ($STAMP)"
-
-    # Keep last 60 snapshots
-    mapfile -t old_archives < <(ls -1t "$ARCHIVE"/tles-* 2>/dev/null | tail -n +61)
-    [[ ${#old_archives[@]} -gt 0 ]] && rm -- "${old_archives[@]}"
-fi
-
-# Fetch satellites that need name rewriting (name clash or absent in Celestrak).
-# Must run after tles.txt is installed so the mv doesn't overwrite our additions.
-for id in "${!CATNR_RENAME[@]}"; do
-    friendly="${CATNR_RENAME[$id]}"
-    raw=$(curl -A "HamClock-Backend/1.0" -sSL \
-        "https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=tle") || true
-    if echo "$raw" | grep -q '^1 '; then
-        echo "$raw" | awk -v name="$friendly" 'NR==1{print name} NR>1{print}' >> "$TLEFILE"
-        echo >> "$TLEFILE"
-        echo "  Added NORAD $id as '$friendly'" >&2
-    else
-        echo "WARNING: NORAD $id ($friendly) not fetched" >&2
+for url in "${AMSAT_URLS[@]}"; do
+    name="$(basename "$url")"; stamp="$STAMPDIR/$name"; resp="$(mktemp)"; hdr="$(mktemp)"
+    # conditional GET only if we also still hold the file it would refer to
+    zopt=(); [[ -f "$stamp" && -s "$TLEFILE" ]] && zopt=(-z "$stamp")
+    code="$("${CURL[@]}" ${zopt[@]+"${zopt[@]}"} -D "$hdr" -o "$resp" -w '%{http_code}' "$url" 2>/dev/null)" || code=000
+    if [[ "$code" == "304" ]]; then
+        echo "  $name: not modified since last download"
+        UNCHANGED=1; rm -f "$resp" "$hdr"; break
     fi
+    n="$(tle_clean < "$resp" | grep -c '^1 ' || true)"
+    if [[ "$code" == "200" && "$n" -ge "$MIN_OBJECTS" ]]; then
+        cp "$resp" "$NEWDATA"; touch "$stamp"; GOT_NEW=1
+        SRC_URL="$url"
+        # when AMSAT published the file (last Last-Modified header, if the server sends one)
+        lm="$(grep -i '^last-modified:' "$hdr" | tail -n1 | cut -d: -f2- | tr -d '\r' || true)"
+        [[ -n "$lm" ]] && SRC_PUB="$(date -u -d "$lm" +%s 2>/dev/null || true)"
+        echo "  $name: $n valid objects"
+        rm -f "$resp" "$hdr"; break
+    fi
+    echo "  $name: HTTP $code, $n valid objects — trying next source" >&2
+    rm -f "$resp" "$hdr"
 done
 
-# Always run AMSAT filter
-echo "[$(ts)] Running AMSAT status filter..."
-if env ESATS_TLE_CACHE="$TLEFILE" ESATS_OUT="$ESATS_OUT" perl "$FILTER"; then
-    echo "[$(ts)] AMSAT filter complete — esats.txt updated"
-else
-    echo "WARNING: AMSAT filter failed — esats.txt not updated"
+if [[ $GOT_NEW -eq 1 ]]; then
+    # store only the validated blocks, replacing the previous file outright
+    tle_clean < "$NEWDATA" > "$TMPFILE"
+    mv "$TMPFILE" "$TLEFILE"
+    echo "Saved $(grep -c '^1 ' "$TLEFILE") objects to $TLEFILE"
+    # bulletin header details exist only in daily-bulletin.txt; blank for dailytle.txt
+    bid="$(grep -m1 -o 'ORB[0-9]\{5\}\.[0-9]' "$NEWDATA" || true)"
+    bdate="$(grep -m1 -E -o '(January|February|March|April|May|June|July|August|September|October|November|December) [0-9]{1,2}, [0-9]{4}' "$NEWDATA" || true)"
+    [[ -n "$bdate" ]] && bdate="$(date -u -d "$bdate" +%F 2>/dev/null || true)"
+    {
+        echo "source_url=$SRC_URL"
+        echo "published_epoch=$SRC_PUB"
+        echo "downloaded_epoch=$(date -u +%s)"
+        echo "bulletin_id=$bid"
+        echo "bulletin_date=$bdate"
+    } > "$META.tmp"
+    mv "$META.tmp" "$META"
+elif [[ $UNCHANGED -eq 0 ]]; then
+    echo "WARNING: could not fetch AMSAT keps from any source — using last good download"
 fi
 
-# Append Moon TLE
+if [[ ! -s "$TLEFILE" ]]; then
+    echo "ERROR: no AMSAT data available — esats.txt left untouched"
+    exit 1
+fi
+
+# --- Build esats.txt in a temp file, append Moon, then swap atomically -----
+echo "[$(ts)] Running satellite filter..."
+if ! env ESATS_TLE_CACHE="$TLEFILE" ESATS_OUT="$ESATS_NEW" perl "$FILTER"; then
+    echo "WARNING: filter failed — esats.txt left untouched"
+    exit 1
+fi
+
 echo "[$(ts)] Generating Moon TLE..."
+MOON_TLE=""
 if [[ -f "$MOONTLE_SCRIPT" ]]; then
-    MOON_TLE=$("$PYTHON_BIN" -W ignore "$MOONTLE_SCRIPT" -q 2>/dev/null) && {
-        echo "$MOON_TLE" >> "$ESATS_OUT"
-        echo "[$(ts)] Moon TLE appended to esats.txt"
-    } || echo "WARNING: moontle.py failed — Moon TLE not added"
+    MOON_TLE=$("$PYTHON_BIN" -W ignore "$MOONTLE_SCRIPT" -q 2>/dev/null) || MOON_TLE=""
+fi
+if [[ "$(grep -c '^1 ' <<<"$MOON_TLE")" -eq 1 ]]; then
+    echo "$MOON_TLE" >> "$ESATS_NEW"
+    echo "[$(ts)] Moon TLE appended"
+elif [[ -f "$ESATS_OUT" ]] && grep -q '^Moon$' "$ESATS_OUT"; then
+    echo "WARNING: moontle.py failed — carrying over previous Moon block (valid ~24h)"
+    grep -A2 '^Moon$' "$ESATS_OUT" >> "$ESATS_NEW"
 else
-    echo "WARNING: moontle.py not found at $MOONTLE_SCRIPT — Moon TLE not added"
+    echo "WARNING: moontle.py failed — Moon TLE not added"
 fi
 
-if ! grep -q '^1 25544U' "$TLEFILE"; then
-    echo "WARNING: raw TLE cache is missing ISS NORAD 25544; stations fetch may have failed"
-elif ! grep -qx 'ISS' "$ESATS_OUT"; then
-    echo "WARNING: raw TLE cache contains ISS NORAD 25544, but esats.txt is missing ISS"
-    echo "         filter_amsat_active.pl may be stale or alias matching failed"
-fi
+chmod --reference="$ESATS_OUT" "$ESATS_NEW" 2>/dev/null || chmod 644 "$ESATS_NEW"
+mv -f "$ESATS_NEW" "$ESATS_OUT"          # atomic: readers never see a partial file
+echo "[$(ts)] esats.txt installed ($(grep -c '^1 ' "$ESATS_OUT") objects)"
+
+# --- Record the newest satellite epoch for the dashboard --------------------
+NEWEST_EPOCH="$(perl -MTime::Local -e '
+    my @L=<STDIN>; chomp @L; my $max=0;
+    for (my $i=0;$i<$#L;$i++){ next unless $L[$i+1] =~ /^1 /; next if $L[$i] eq "Moon";
+        my ($yy,$d)=(substr($L[$i+1],18,2),substr($L[$i+1],20,12));
+        my $e=Time::Local::timegm(0,0,0,1,0,2000+$yy)+($d-1)*86400; $max=$e if $e>$max; }
+    print int($max);' < "$ESATS_OUT")"
+meta_set newest_epoch "$NEWEST_EPOCH"
+
+# --- Report real data age (esats.txt mtime is meaningless: we rewrite it) ---
+perl -MTime::Local -e '
+    my ($now,$warn)=(time,$ARGV[0]*3600); my ($new,$old,$nn,$on);
+    my @L=<STDIN>; chomp @L;
+    for (my $i=0;$i<$#L;$i++){ next unless $L[$i+1] =~ /^1 /; my $n=$L[$i]; next if $n eq "Moon";
+        my ($yy,$d)=(substr($L[$i+1],18,2),substr($L[$i+1],20,12));
+        my $e=Time::Local::timegm(0,0,0,1,0,2000+$yy)+($d-1)*86400;
+        my $age=$now-$e; ($new,$nn)=($age,$n) if !defined $new||$age<$new; ($old,$on)=($age,$n) if !defined $old||$age>$old; }
+    printf "Data age: newest %.1fh (%s), oldest %.1fh (%s)\n",$new/3600,$nn,$old/3600,$on if defined $new;
+    print "WARNING: newest satellite epoch is older than $ARGV[0]h — AMSAT data is NOT updating\n" if defined $new && $new>$warn;
+' "$STALE_WARN_HOURS" < "$ESATS_OUT"

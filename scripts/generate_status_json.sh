@@ -54,6 +54,8 @@ THRESH_SDO_SPACE="${THRESH_SDO_SPACE:-3600 7200 14400}"
 THRESH_SSN="${THRESH_SSN:-7200 14400 28800}" # 2h 4h 8h
 THRESH_SSN_HISTORY="${THRESH_SSN_HISTORY:-86400 172800 259200}" # 1d 2d 3d
 THRESH_ESATS="${THRESH_ESATS:-3600 7200 14400}"
+# esats.txt is judged by when AMSAT published the keps (AMSAT posts one file a day): 26h 48h 72h
+THRESH_ESATS_SRC="${THRESH_ESATS_SRC:-93600 172800 259200}"
 THRESH_ESATS_FREQ="${THRESH_ESATS_FREQ:-90000 144000 180000}" # 25h 40h 50h
 THRESH_CONTESTS="${THRESH_CONTESTS:-86400 172800 259200}" # 1d 2d 3d
 THRESH_CTY_DX="${THRESH_CTY_DX:-2592000 5184000 7776000}" # 30d 60d 90d
@@ -89,6 +91,8 @@ DATA_DIR="${DATA_DIR:-/opt/hamclock-backend/htdocs/ham/HamClock}"
 MAPS_DIR="${MAPS_DIR:-/opt/hamclock-backend/htdocs/ham/HamClock/maps}"
 SDO_DIR="${SDO_DIR:-/opt/hamclock-backend/htdocs/ham/HamClock/SDO}"
 CACHE_DIR="${CACHE_DIR:-/opt/hamclock-backend/cache}"
+# Provenance written by fetch_tle.sh (key=value lines); optional
+AMSAT_META="${AMSAT_META:-/opt/hamclock-backend/tle/amsat-latest.meta}"
 
 # Determine the central mirror host
 MIRROR_HOST="${MIRROR:-ohb.hamclock.app}"
@@ -457,6 +461,11 @@ dyn_badge_class() { # This function is fine as is, it just maps states to CSS cl
 }
 
 # ── HTML row builder & stat accumulator ──────────────────────────────────────
+# Read one key from the AMSAT provenance file, restricted to a safe character set.
+meta_get() {
+    sed -n "s/^$1=//p" "$AMSAT_META" 2>/dev/null | head -n1 | tr -cd 'A-Za-z0-9._:/ -'
+}
+
 # Args: $1=filepath  $2=category-label
 emit_file_row() {
     local filepath="$1"
@@ -506,6 +515,40 @@ emit_file_row() {
         status_text="${class_text#* }"
     fi
 
+    # esats.txt is rewritten by every cron run, so its mtime says nothing about the
+    # data.  Judge it by when AMSAT published the keps instead (fetch_tle.sh writes
+    # the meta file).  Falls back to the plain mtime logic above if it is missing.
+    local name_extra="" ts_extra="" json_extra=""
+    if [ "$use_remote" -eq 0 ] && [ "$label" = "esats" ] && [ "$filename" = "esats.txt" ] && [ -r "$AMSAT_META" ]; then
+        local m_pub m_dl m_bid m_bdate m_newest m_ref m_file_mod m_newest_age m_parts=""
+        m_pub=$(meta_get published_epoch);  m_dl=$(meta_get downloaded_epoch)
+        m_bid=$(meta_get bulletin_id);      m_bdate=$(meta_get bulletin_date)
+        m_newest=$(meta_get newest_epoch)
+        m_ref="${m_pub:-$m_dl}"
+        if [[ "$m_ref" =~ ^[0-9]+$ ]]; then
+            m_file_mod="$mod_human"
+            mod_epoch="$m_ref"
+            mod_human=$(date -u -d "@$mod_epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "unknown")
+            age_sec=$(( NOW_EPOCH - mod_epoch ))
+            age_sec=$(( age_sec < 0 ? 0 : age_sec ))
+            class_text=$(classify_age "$age_sec" "$THRESH_ESATS_SRC")
+            status_class="${class_text%% *}"
+            status_text="${class_text#* }"
+            [ -n "$m_bid" ]   && m_parts+="bulletin ${m_bid}"
+            [ -n "$m_bdate" ] && m_parts+="${m_parts:+ }(${m_bdate})"
+            m_newest_age=-1
+            if [[ "$m_newest" =~ ^[0-9]+$ && "$m_newest" -gt 0 ]]; then
+                m_newest_age=$(( NOW_EPOCH - m_newest ))
+                m_parts+="${m_parts:+ · }newest epoch $(( m_newest_age / 3600 ))h old"
+            fi
+            ts_extra=" <span style='opacity:.65;font-size:.85em'>AMSAT published</span>"
+            [ -n "$m_parts" ] && name_extra="<br><span style='opacity:.65;font-size:.85em'>${m_parts}</span>"
+            json_extra=$(printf ',\n      "source": "AMSAT",\n      "source_published_utc": "%s",\n      "file_modified_utc": "%s",\n      "bulletin_id": "%s",\n      "bulletin_date": "%s",\n      "newest_epoch_age_seconds": %d' \
+                "$mod_human" "$m_file_mod" "$m_bid" "$m_bdate" \
+                "$m_newest_age")
+        fi
+    fi
+
     # Update summary tallies in the current shell
     case "$label" in
         map)
@@ -549,8 +592,8 @@ emit_file_row() {
             printf ',\n' >> "$JSON_ENTRIES_FILE"
         fi
         FIRST_JSON_ENTRY=0
-        printf '    {\n      "filename": "%s",\n      "category": "%s",\n      "modified_utc": "%s",\n      "age_seconds": %d,\n      "status": "%s"\n    }' \
-            "$safe_name" "$safe_label" "$mod_human" "$age_sec" "$status_text" >> "$JSON_ENTRIES_FILE"
+        printf '    {\n      "filename": "%s",\n      "category": "%s",\n      "modified_utc": "%s",\n      "age_seconds": %d,\n      "status": "%s"%s\n    }' \
+            "$safe_name" "$safe_label" "$mod_human" "$age_sec" "$status_text" "$json_extra" >> "$JSON_ENTRIES_FILE"
     fi
 
     local id_attr=""
@@ -579,9 +622,9 @@ emit_file_row() {
     }
 
     echo "    <tr>"
-    echo "      <td class='name'>${filename}</td>"
+    echo "      <td class='name'>${filename}${name_extra}</td>"
     echo "      <td class='category'>${label}</td>"
-    echo "      <td class='timestamp'>${mod_human} UTC</td>"
+    echo "      <td class='timestamp'>${mod_human} UTC${ts_extra}</td>"
     echo "      <td class='age'><span ${id_attr} class='badge ${status_class}'>${status_text}</span><span class='age-str'> ${age_str}</span></td>"
     echo "    </tr>"
 }
