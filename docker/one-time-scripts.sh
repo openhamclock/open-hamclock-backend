@@ -27,15 +27,23 @@ runuser_wrapper() {
 
 #############################################
 # pretty much keep these as standard:
-
+#############################################
 # always be sure logrotate has been primed
 wrapper /etc/cron.daily/logrotate
 
 # reload fw files
 runuser_wrapper $SCRIPTS/update_versions.pl
 
-# reload rss cache
+# reload caches
 runuser_wrapper $SCRIPTS/web15rss_fetch.py
+runuser_wrapper $SCRIPTS/gen_solarflux-history.sh
+runuser_wrapper $SCRIPTS/gen_ssn_history.pl
+runuser_wrapper $SCRIPTS/gen_contest-calendar.sh
+runuser_wrapper $SCRIPTS/fetch_cyclones.py
+runuser_wrapper /usr/bin/python3 $SCRIPTS/fetch_IOTA.py
+runuser_wrapper /usr/bin/python3 $SCRIPTS/gen_dxpeditions_spots.py
+runuser_wrapper $SCRIPTS/fetch_tle.sh
+runuser_wrapper $SCRIPTS/fetch_sat_freq.sh
 
 #############################################
 
@@ -45,6 +53,5 @@ runuser_wrapper $SCRIPTS/web15rss_fetch.py
 /bin/true # example
 
 # new scripts to prime
-runuser_wrapper $SCRIPTS/gen_pota_scheduled.pl
 
 #############################################
