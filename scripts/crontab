@@ -131,7 +131,7 @@ LANG=C
 # Writes to: /opt/hamclock-backend/htdocs/ham/HamClock/storms/storms.txt
 # The script creates the storms/ directory if missing.
 7 */6 * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/fetch_cyclones.py
-*/30 * * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/probe_dynamic_endpoints.sh
+*/15 * * * *   $SCRIPTS/cron-wrapper.sh $SCRIPTS/probe_dynamic_endpoints.sh
 */5 * * * *    $SCRIPTS/cron-wrapper.sh $SCRIPTS/generate_status_json.sh
 */5 * * * *    $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/fetch_marine_warnings.py
 */15 * * * *    $SCRIPTS/cron-wrapper.sh $VENV/bin/python3 $SCRIPTS/fetch_fires.py

@@ -34,7 +34,7 @@ wrapper /etc/cron.daily/logrotate
 # reload fw files
 runuser_wrapper $SCRIPTS/update_versions.pl
 
-# reload caches
+# reload caches that are refreshed infrequently
 runuser_wrapper $SCRIPTS/web15rss_fetch.py
 runuser_wrapper $SCRIPTS/gen_solarflux-history.sh
 runuser_wrapper $SCRIPTS/gen_ssn_history.pl
