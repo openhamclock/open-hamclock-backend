@@ -264,10 +264,15 @@ sub proxy_request {
                 if ($is_band_conditions) {
                     emit_zero_response($c, $qs, $err->{message} // 'unknown', $url);
                 } else {
-                    app->log->error("Upstream error for $url: " . ($err->{message} // 'unknown'));
+                    my $err_msg = $err->{message} // 'unknown';
+                    if ($err_msg =~ /^Inactivity timeout$/i) {
+                        app->log->debug("Upstream inactivity timeout for $url: $err_msg");
+                    } else {
+                        app->log->error("Upstream error for $url: $err_msg");
+                    }
                     $c->res->code(502);
                     $c->res->headers->content_type('text/plain');
-                    $c->write("Upstream error: " . ($err->{message} // 'unknown') . "\n");
+                    $c->write("Upstream error: $err_msg\n");
                 }
                 $headers_sent = 1;
             }
