@@ -32,6 +32,7 @@ set -euo pipefail
 TLEDIR="${TLEDIR:-/opt/hamclock-backend/tle}"
 TLEFILE="$TLEDIR/amsat-latest.txt"   # last good AMSAT download (validated); nothing else is kept
 TMPFILE="$TLEDIR/amsat-latest.new"
+META="$TLEDIR/amsat-latest.meta"     # provenance for the status dashboard (publish date, bulletin id, ...)
 STAMPDIR="$TLEDIR/.stamps"
 ESATS_OUT="${ESATS_OUT:-/opt/hamclock-backend/htdocs/ham/HamClock/esats/esats.txt}"
 ESATS_NEW="${ESATS_OUT}.new"
@@ -83,28 +84,39 @@ tle_clean() {
     '
 }
 
+# Provenance file read by generate_status_json.sh (key=value lines).
+meta_set() {
+    local k="$1" v="$2"
+    { [[ -f "$META" ]] && grep -v "^${k}=" "$META" || true; echo "${k}=${v}"; } > "$META.tmp"
+    mv "$META.tmp" "$META"
+}
+
 echo "[$(date -u)] Fetching AMSAT keps..."
 
 NEWDATA="$(mktemp)"; trap 'rm -f "$NEWDATA" "$TMPFILE" "$ESATS_NEW"' EXIT
-GOT_NEW=0; UNCHANGED=0
+GOT_NEW=0; UNCHANGED=0; SRC_URL=""; SRC_PUB=""
 
 for url in "${AMSAT_URLS[@]}"; do
-    name="$(basename "$url")"; stamp="$STAMPDIR/$name"; resp="$(mktemp)"
+    name="$(basename "$url")"; stamp="$STAMPDIR/$name"; resp="$(mktemp)"; hdr="$(mktemp)"
     # conditional GET only if we also still hold the file it would refer to
     zopt=(); [[ -f "$stamp" && -s "$TLEFILE" ]] && zopt=(-z "$stamp")
-    code="$("${CURL[@]}" ${zopt[@]+"${zopt[@]}"} -o "$resp" -w '%{http_code}' "$url" 2>/dev/null)" || code=000
+    code="$("${CURL[@]}" ${zopt[@]+"${zopt[@]}"} -D "$hdr" -o "$resp" -w '%{http_code}' "$url" 2>/dev/null)" || code=000
     if [[ "$code" == "304" ]]; then
         echo "  $name: not modified since last download"
-        UNCHANGED=1; rm -f "$resp"; break
+        UNCHANGED=1; rm -f "$resp" "$hdr"; break
     fi
     n="$(tle_clean < "$resp" | grep -c '^1 ' || true)"
     if [[ "$code" == "200" && "$n" -ge "$MIN_OBJECTS" ]]; then
         cp "$resp" "$NEWDATA"; touch "$stamp"; GOT_NEW=1
+        SRC_URL="$url"
+        # when AMSAT published the file (last Last-Modified header, if the server sends one)
+        lm="$(grep -i '^last-modified:' "$hdr" | tail -n1 | cut -d: -f2- | tr -d '\r' || true)"
+        [[ -n "$lm" ]] && SRC_PUB="$(date -u -d "$lm" +%s 2>/dev/null || true)"
         echo "  $name: $n valid objects"
-        rm -f "$resp"; break
+        rm -f "$resp" "$hdr"; break
     fi
     echo "  $name: HTTP $code, $n valid objects — trying next source" >&2
-    rm -f "$resp"
+    rm -f "$resp" "$hdr"
 done
 
 if [[ $GOT_NEW -eq 1 ]]; then
@@ -112,6 +124,18 @@ if [[ $GOT_NEW -eq 1 ]]; then
     tle_clean < "$NEWDATA" > "$TMPFILE"
     mv "$TMPFILE" "$TLEFILE"
     echo "Saved $(grep -c '^1 ' "$TLEFILE") objects to $TLEFILE"
+    # bulletin header details exist only in daily-bulletin.txt; blank for dailytle.txt
+    bid="$(grep -m1 -o 'ORB[0-9]\{5\}\.[0-9]' "$NEWDATA" || true)"
+    bdate="$(grep -m1 -E -o '(January|February|March|April|May|June|July|August|September|October|November|December) [0-9]{1,2}, [0-9]{4}' "$NEWDATA" || true)"
+    [[ -n "$bdate" ]] && bdate="$(date -u -d "$bdate" +%F 2>/dev/null || true)"
+    {
+        echo "source_url=$SRC_URL"
+        echo "published_epoch=$SRC_PUB"
+        echo "downloaded_epoch=$(date -u +%s)"
+        echo "bulletin_id=$bid"
+        echo "bulletin_date=$bdate"
+    } > "$META.tmp"
+    mv "$META.tmp" "$META"
 elif [[ $UNCHANGED -eq 0 ]]; then
     echo "WARNING: could not fetch AMSAT keps from any source — using last good download"
 fi
@@ -146,6 +170,15 @@ fi
 chmod --reference="$ESATS_OUT" "$ESATS_NEW" 2>/dev/null || chmod 644 "$ESATS_NEW"
 mv -f "$ESATS_NEW" "$ESATS_OUT"          # atomic: readers never see a partial file
 echo "[$(ts)] esats.txt installed ($(grep -c '^1 ' "$ESATS_OUT") objects)"
+
+# --- Record the newest satellite epoch for the dashboard --------------------
+NEWEST_EPOCH="$(perl -MTime::Local -e '
+    my @L=<STDIN>; chomp @L; my $max=0;
+    for (my $i=0;$i<$#L;$i++){ next unless $L[$i+1] =~ /^1 /; next if $L[$i] eq "Moon";
+        my ($yy,$d)=(substr($L[$i+1],18,2),substr($L[$i+1],20,12));
+        my $e=Time::Local::timegm(0,0,0,1,0,2000+$yy)+($d-1)*86400; $max=$e if $e>$max; }
+    print int($max);' < "$ESATS_OUT")"
+meta_set newest_epoch "$NEWEST_EPOCH"
 
 # --- Report real data age (esats.txt mtime is meaningless: we rewrite it) ---
 perl -MTime::Local -e '
