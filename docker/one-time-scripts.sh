@@ -39,11 +39,11 @@ runuser_wrapper $SCRIPTS/web15rss_fetch.py
 runuser_wrapper $SCRIPTS/gen_solarflux-history.sh
 runuser_wrapper $SCRIPTS/gen_ssn_history.pl
 runuser_wrapper $SCRIPTS/gen_contest-calendar.sh
-runuser_wrapper $SCRIPTS/fetch_cyclones.py
 runuser_wrapper /usr/bin/python3 $SCRIPTS/fetch_IOTA.py
 runuser_wrapper /usr/bin/python3 $SCRIPTS/gen_dxpeditions_spots.py
 runuser_wrapper $SCRIPTS/fetch_tle.sh
 runuser_wrapper $SCRIPTS/fetch_sat_freq.sh
+runuser_wrapper $SCRIPTS/fetch_cyclones.py
 
 #############################################
 
