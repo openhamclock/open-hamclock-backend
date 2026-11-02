@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import time
 import pandas as pd
 import requests
@@ -22,6 +23,35 @@ from pathlib import Path
 
 URL = "https://services.swpc.noaa.gov/json/goes/primary/xrays-3-day.json"
 OUT = Path("/opt/hamclock-backend/htdocs/ham/HamClock/xray/xray.txt")
+
+# Upstream-health sidecar read by generate_status_json.sh.  Kept outside the xray/
+# data dir so it is not listed as a data product itself.
+META = Path(os.environ.get("XRAY_META", "/opt/hamclock-backend/cache/xray-upstream.meta"))
+
+# SWPC keeps publishing new time_tags during a GOES outage but zero-fills the flux,
+# so "fresh timestamp" is not enough: judge by the newest sample with real (>0) flux.
+UPSTREAM_MAX_AGE_SEC = 30 * 60
+
+def write_upstream_meta(last_good, satellite=None) -> None:
+    """Record whether SWPC is delivering real data. Never raises: status reporting
+    must not break the data product."""
+    now = pd.Timestamp.now(tz="UTC")
+    ok = last_good is not None and (now - last_good).total_seconds() <= UPSTREAM_MAX_AGE_SEC
+    lines = [
+        f"upstream_ok={1 if ok else 0}",
+        f"checked_epoch={int(now.timestamp())}",
+    ]
+    if last_good is not None:
+        lines.append(f"last_good_epoch={int(last_good.timestamp())}")
+    if satellite is not None:
+        lines.append(f"satellite={satellite}")
+    try:
+        META.parent.mkdir(parents=True, exist_ok=True)
+        tmp = META.with_suffix(".tmp")
+        tmp.write_text("\n".join(lines) + "\n")
+        tmp.replace(META)
+    except OSError as e:
+        print(f"warning: could not write {META}: {e}")
 
 # CSI appears to lag the very newest bins; keep a safety margin so we don't
 # emit bins they haven't emitted yet. Tune if needed.
@@ -68,9 +98,21 @@ def main() -> None:
     # Keep only the two GOES X-ray bands used by HamClock/CSI
     df = df[df["energy"].isin(["0.05-0.4nm", "0.1-0.8nm"])]
 
+    # Which GOES satellite SWPC is currently serving as "primary" (for the status page)
+    satellite = None
+    if "satellite" in df.columns and not df.empty:
+        try:
+            satellite = int(df.loc[df["time_tag"].idxmax(), "satellite"])
+        except (TypeError, ValueError):
+            satellite = None
+
     # One row per timestamp with both flux columns
     df = df.pivot(index="time_tag", columns="energy", values="flux").dropna()
     df = df.rename(columns={"0.05-0.4nm": "short", "0.1-0.8nm": "long"}).sort_index()
+
+    # Upstream health (report only; the data below is intentionally left untouched)
+    good = df[(df["short"] > 0) & (df["long"] > 0)]
+    write_upstream_meta(good.index.max() if not good.empty else None, satellite)
 
     # --- CSI-like 10-minute binning (fixed bins, UTC aligned) ---
     # Floor to 10-minute boundaries
