@@ -93,6 +93,10 @@ SDO_DIR="${SDO_DIR:-/opt/hamclock-backend/htdocs/ham/HamClock/SDO}"
 CACHE_DIR="${CACHE_DIR:-/opt/hamclock-backend/cache}"
 # Provenance written by fetch_tle.sh (key=value lines); optional
 AMSAT_META="${AMSAT_META:-/opt/hamclock-backend/tle/amsat-latest.meta}"
+# Upstream-health file written by xray_simple.py (key=value lines); optional.
+# Ignored if older than XRAY_META_MAX_AGE seconds (fetcher not running).
+XRAY_META="${XRAY_META:-/opt/hamclock-backend/cache/xray-upstream.meta}"
+XRAY_META_MAX_AGE="${XRAY_META_MAX_AGE:-3600}"
 
 # Determine the central mirror host
 MIRROR_HOST="${MIRROR:-ohb.hamclock.app}"
@@ -463,7 +467,7 @@ dyn_badge_class() { # This function is fine as is, it just maps states to CSS cl
 # ── HTML row builder & stat accumulator ──────────────────────────────────────
 # Read one key from the AMSAT provenance file, restricted to a safe character set.
 meta_get() {
-    sed -n "s/^$1=//p" "$AMSAT_META" 2>/dev/null | head -n1 | tr -cd 'A-Za-z0-9._:/ -'
+    sed -n "s/^$1=//p" "${2:-$AMSAT_META}" 2>/dev/null | head -n1 | tr -cd 'A-Za-z0-9._:/ -'
 }
 
 # Args: $1=filepath  $2=category-label
@@ -546,6 +550,53 @@ emit_file_row() {
             json_extra=$(printf ',\n      "source": "AMSAT",\n      "source_published_utc": "%s",\n      "file_modified_utc": "%s",\n      "bulletin_id": "%s",\n      "bulletin_date": "%s",\n      "newest_epoch_age_seconds": %d' \
                 "$mod_human" "$m_file_mod" "$m_bid" "$m_bdate" \
                 "$m_newest_age")
+        fi
+    fi
+
+    # xray.txt is rewritten every run, and during a GOES outage SWPC zero-fills the
+    # feed (new timestamps, flux 0), so its mtime looks fresh.  xray_simple.py records
+    # whether upstream is delivering real data.  Always show that on the row; if
+    # upstream is down, report STALE and the age of the last real sample.  The data
+    # file itself is not changed.
+    if [ "$use_remote" -eq 0 ] && [ "$label" = "xray" ] && [ "$filename" = "xray.txt" ] && [ -r "$XRAY_META" ]; then
+        local x_ok x_chk x_good x_sat x_file_mod x_good_human x_sat_txt="" x_note
+        x_ok=$(meta_get upstream_ok "$XRAY_META")
+        x_chk=$(meta_get checked_epoch "$XRAY_META")
+        x_good=$(meta_get last_good_epoch "$XRAY_META")
+        x_sat=$(meta_get satellite "$XRAY_META")
+        [[ "$x_sat" =~ ^[0-9]+$ ]] && x_sat_txt="GOES-${x_sat} "
+        if [[ "$x_chk" =~ ^[0-9]+$ ]] && [ $(( NOW_EPOCH - x_chk )) -lt "$XRAY_META_MAX_AGE" ] \
+           && { [ "$x_ok" = "0" ] || [ "$x_ok" = "1" ]; }; then
+            x_file_mod="$mod_human"
+            x_good_human=""
+            if [[ "$x_good" =~ ^[0-9]+$ ]]; then
+                x_good_human=$(date -u -d "@$x_good" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "unknown")
+            fi
+            if [ "$x_ok" = "1" ]; then
+                x_note="${x_sat_txt}upstream OK"
+                json_extra=$(printf ',\n      "upstream_ok": true' )
+            else
+                status_class="stale"
+                status_text="STALE"
+                x_note="${x_sat_txt}upstream (SWPC) DOWN: no valid data"
+                json_extra=$(printf ',\n      "upstream_ok": false,\n      "file_modified_utc": "%s"' "$x_file_mod")
+                if [ -n "$x_good_human" ]; then
+                    mod_epoch="$x_good"
+                    mod_human="$x_good_human"
+                    age_sec=$(( NOW_EPOCH - mod_epoch ))
+                    age_sec=$(( age_sec < 0 ? 0 : age_sec ))
+                    ts_extra=" <span style='opacity:.65;font-size:.85em'>last valid upstream sample</span>"
+                    age_str=""
+                fi
+            fi
+            [ -n "$x_sat" ] && json_extra+=$(printf ',\n      "satellite": "%s"' "$x_sat")
+            if [ -n "$x_good_human" ]; then
+                json_extra+=$(printf ',\n      "last_valid_sample_utc": "%s"' "$x_good_human")
+                if [ "$x_ok" = "1" ]; then
+                    x_note+=" · last valid sample ${x_good_human#* } UTC"
+                fi
+            fi
+            name_extra="<br><span style='opacity:.65;font-size:.85em'>${x_note}</span>"
         fi
     fi
 
