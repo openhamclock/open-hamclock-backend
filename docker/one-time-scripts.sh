@@ -53,5 +53,6 @@ runuser_wrapper $SCRIPTS/fetch_cyclones.py
 /bin/true # example
 
 # new scripts to prime
+runuser_wrapper $SCRIPTS/xray_simple.py
 
 #############################################
