@@ -31,7 +31,7 @@ RUN pip install --break-system-packages global-land-mask global_land_mask && \
 #######################################################
 # Build the real image
 #######################################################
-FROM debian:13.4-slim
+FROM debian:13-slim
 
 USER root
 WORKDIR /opt
