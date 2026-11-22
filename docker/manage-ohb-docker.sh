@@ -18,9 +18,9 @@
 # at release time, this value is set to the tagged release
 OHB_MANAGER_VERSION=edge
 # tags to use
-DEFAULT_VOACAP_SERVICE_TAG=1.21
-DEFAULT_PSKR_MQTT_CACHE_TAG=1.19
-DEFAULT_WSPR_LIVE_CACHE_TAG=1.4
+DEFAULT_VOACAP_SERVICE_TAG=1.22
+DEFAULT_PSKR_MQTT_CACHE_TAG=1.20
+DEFAULT_WSPR_LIVE_CACHE_TAG=1.5
 
 GITHUB_LATEST_RELEASE_URL="https://api.github.com/repos/openhamclock/open-hamclock-backend/releases/latest"
 OHB_HTDOCS_DVC=ohb-htdocs

@@ -5,7 +5,7 @@
 #######################################################
 # build support artifacts
 #######################################################
-FROM debian:13.4-slim AS build-support
+FROM debian:13-slim AS build-support
 
 USER root
 WORKDIR /opt
